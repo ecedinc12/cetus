@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dispatch one worker subprocess to WRITE CODE ONLY, and emit lifecycle events.
 #
-# Workers are fixed to model mimo-v2.6-flash with thinking off. They produce
+# Workers are fixed to model deepseek-v4.1-flash with thinking off. They produce
 # source and tests; they never author documentation, data assets or briefs.
 # That contract is enforced after the run: any change to a forbidden path fails
 # the dispatch with exit 78 (see §Worker contract below).
@@ -29,8 +29,8 @@
 # wrote outside code paths, 124 timed out.
 set -uo pipefail
 
-# Fixed by policy: workers are always mimo-v2.6-flash with thinking disabled.
-readonly WORKER_MODEL="mimo-v2.6-flash"
+# Fixed by policy: workers are always deepseek-v4.1-flash with thinking disabled.
+readonly WORKER_MODEL="deepseek-v4.1-flash"
 readonly WORKER_THINKING="off"
 timeout_seconds="${WORKER_TIMEOUT:-3600}"
 

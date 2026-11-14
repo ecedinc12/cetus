@@ -7,7 +7,7 @@ Read this file before writing code. If a task conflicts with it, ask first.
 
 ## Agent workflow
 
-- Use **MiMo v2.6 subagents** for coding tasks, with **thinking disabled**.
+- Use **DeepSeek V4.1 Flash subagents** for coding tasks, with **thinking disabled**.
   Dispatch them through `tools/dispatch/worker.sh` (model and thinking are
   pinned there):
 
