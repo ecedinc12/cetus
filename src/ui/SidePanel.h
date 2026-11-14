@@ -9,6 +9,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 class QResizeEvent;
 class QScrollArea;
 class QVBoxLayout;
@@ -28,12 +29,28 @@ public:
     void setConsumablesText(const QString &text);
     void setWarnings(const QStringList &warnings);
 
+    // M6 sample logging. Empty target disables the collect button; empty
+    // error hides the loud error label.
+    void setCollectTarget(const QString &targetId);
+    void setLatestSample(const QString &sampleId, const QString &summary,
+                         int total);
+    // Scroll the panel so the freshly appended note is on screen. No-op when
+    // the scroll area or the label is missing.
+    void revealLatestSample();
+    void setSampleLogError(const QString &error);
+    QString collectTargetId() const;
+    QString latestSampleId() const;
+    QString sampleErrorText() const;
+
     QString scienceGoalText() const;
     QString primaryTargetId() const;
     QString primaryTargetWhy() const;
     QString routeSummaryText() const;
     QStringList warningTexts() const;
     int rankedTargetCount() const;
+
+signals:
+    void collectSampleRequested();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -52,6 +69,9 @@ private:
     QLabel *m_scienceGoalLabel = nullptr;
     QLabel *m_primaryTargetLabel = nullptr;
     QLabel *m_primaryWhyLabel = nullptr;
+    QPushButton *m_collectSampleButton = nullptr;
+    QLabel *m_latestSampleLabel = nullptr;
+    QLabel *m_sampleErrorLabel = nullptr;
     QVBoxLayout *m_targetRowsLayout = nullptr;
     QVector<QLabel *> m_targetRows;
     QLabel *m_routeSummaryLabel = nullptr;
@@ -62,5 +82,8 @@ private:
     QVector<RankedTarget> m_targets;
     QString m_primaryId;
     QString m_primaryWhy;
+    QString m_collectTargetId;
+    QString m_latestSampleId;
+    QString m_sampleErrorText;
     QStringList m_warningTexts;
 };

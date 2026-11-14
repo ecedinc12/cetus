@@ -188,7 +188,7 @@ shortest path.
   reachable targets by decreasing value rate (travel time, then id as
   tie-breaks). Unreachable targets are listed after reachable ones.
 
-Measured on the shipped assets (2025-11-14, offscreen):
+Measured on the shipped assets (2026-11-14, offscreen):
 
 | Item | Value |
 |---|---|
@@ -206,6 +206,43 @@ no-data wedges, plus DTM holes. Those areas are plotted as no-go and counted in
 the panel warning; they are not evidence of safe ground. The high `T3` travel
 time is the real cost of the long ridge approach under the 20° rule and the
 1.2 km/h suit assumption, not a synthetic penalty.
+
+### 2.6 Sample logging / field note (M6)
+
+M6 adds **no new measured NASA data kind**. A collected sample is a field note
+attached to one of the existing Mars Trek target pins; the terrain orientation
+is derived from the shipped HiRISE DTM. There is no physical sample, no
+chain-of-custody record, and no composition measurement in this prototype.
+
+- **ID:** `SAMPLE-<sol>-<n>`, allocated per sol from the session log. A new app
+  run continues from the highest existing `n` for that sol.
+- **Position:** the target pin in the site Mars equirectangular CRS, plus the
+  planetocentric Mars longitude/latitude from `PlanetaryCrs::eqcToLonLat`.
+  The CRS (`+proj=eqc +lat_ts=0 +lon_0=137.39 +R=3396190 +units=m +no_defs`)
+  is written into every record.
+- **Orientation:** a Horn 3×3 surface gradient on the 4 m HiRISE DTM at the pin.
+  The record stores the unit ENU up-vector, slope in degrees, downslope aspect
+  (clockwise from north), and the method/source. Any nodata cell in the 3×3
+  neighbourhood is a hard failure; no orientation is invented.
+- **Field note:** `phenomenon`, `why` and `measurement`. `phenomenon` and `why`
+  come from the real Mars Trek target metadata in
+  `assets/scenario/m3_scenario.json`; `measurement` is explicitly terrain
+  context only and ends `"No in-situ composition measurement was recorded."`
+  The record also stores `"composition_measured": false`.
+- **Session log:** JSON Lines, one object per sample, append-only. Default path
+  is `<QStandardPaths::AppDataLocation>/samples.jsonl` (normally
+  `~/.local/share/cetus/samples.jsonl`); set `CETUS_SAMPLE_LOG` to override it
+  for a demo. A malformed existing line, duplicate ID, malformed ID, or
+  invalid provenance is a loud load failure; the app does not silently repair
+  or discard records.
+- **Example measured at `T1` Pahrump Hills** (2026-11-14, offscreen):
+  `SAMPLE-3-1`, E `-756.135485790` m, N `-276363.057354002` m, up
+  `(-0.03898, 0.03231, 0.99872)`, slope `2.902°`, aspect `309.65°`. The target
+  slope agrees with the corrected 4 m slope product (2.90°).
+
+The "Collect sample" control is deliberately labelled as a field note: the
+tool records where the crew stopped and what they observed. It does not claim
+that a physical specimen was bagged or measured.
 
 ---
 

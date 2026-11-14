@@ -10,9 +10,13 @@
 #include <QString>
 #include <QVector>
 
+#include <memory>
+
 class LayerLegend;
 class MapView;
 class QShowEvent;
+class QToolButton;
+class SampleCollector;
 class SidePanel;
 class QLabel;
 
@@ -25,6 +29,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
     const DatasetRegistry &registry() const;
     // True when the registry holds all four prepared layers.
@@ -44,6 +49,11 @@ public:
     QString primaryTargetId() const;
     SidePanel *sidePanel() const;
 
+    // M6 field-note accessors (null/0 when the sample log could not load).
+    const SampleCollector *sampleCollector() const;
+    int sampleCount() const;
+    QString sampleLogPath() const;
+
 protected:
     // Refit once the docking layout has settled on first show (the bottom
     // legend dock changes the central widget's height after MapView's own
@@ -57,6 +67,11 @@ private:
     // Refresh the status-bar mission/layer summary. Keeps the loud load
     // failure message when the rasters could not be loaded.
     void updateStatus();
+    // Open the session sample log against the prepared HiRISE DEM. A failure
+    // is loud but leaves the map usable.
+    void openSampleLog();
+    // Append one field note for the current primary target (M6).
+    void collectSample();
 
     MapView *m_mapView;
     SidePanel *m_sidePanel;
@@ -64,6 +79,9 @@ private:
     QString m_loadError;
     LayerLegend *m_legend = nullptr;
     QLabel *m_cursorLabel = nullptr;
+    // Always-visible twin of the panel's collect button (the panel button can
+    // sit below the fold at the demo window size).
+    QToolButton *m_collectToolbarButton = nullptr;
     // One-shot refit once the bottom dock has given the map its final size.
     bool m_didInitialFitAfterLayout = false;
 
@@ -74,4 +92,7 @@ private:
     QString m_primaryTargetId;
     QString m_missionError;
     bool m_scenarioLoaded = false;
+
+    std::unique_ptr<SampleCollector> m_collector;
+    QString m_sampleError;
 };

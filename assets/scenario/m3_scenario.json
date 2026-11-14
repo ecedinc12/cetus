@@ -29,8 +29,9 @@
       "northing_m": -276363.057354002,
       "lon_deg": 137.37724353716703,
       "lat_deg": -4.66241193815176,
-      "science_value": 0.90,
+      "science_value": 0.9,
       "minutes_on_target": 12,
+      "phenomenon": "Jarosite-bearing fracture fills in Murray formation mudstone at the Mojave drill site.",
       "why": "Oldest exposed Murray formation at the base of Mount Sharp. Jarosite at the Mojave drill site points to acidic water, so this outcrop records early fluid chemistry and habitability.",
       "source": "NASA Mars Trek curiosity_waypoints FID 5 (Pahrump Hills); feature text: https://trek.nasa.gov/mars/jpl/assets/features/curiosity/pahrump_hills.html"
     },
@@ -43,6 +44,7 @@
       "lat_deg": -4.667938835464834,
       "science_value": 0.95,
       "minutes_on_target": 14,
+      "phenomenon": "Silica-enriched halos around fractures at the Murray–Stimson contact.",
       "why": "Murray–Stimson contact. Bright halos around fractures are enriched in silica, recording fluid movement through the rock after deposition.",
       "source": "NASA Mars Trek curiosity_waypoints FID 6 (Marias Pass); feature text: https://trek.nasa.gov/mars/jpl/assets/features/curiosity/marias_pass.html"
     },
@@ -55,6 +57,7 @@
       "lat_deg": -4.72053,
       "science_value": 0.85,
       "minutes_on_target": 18,
+      "phenomenon": "Hematite-rich ridge detected by CRISM.",
       "why": "CRISM observed a hematite-rich ridge. This iron oxide forms in association with water, so the ridge can constrain redox conditions and past habitability.",
       "source": "NASA Mars Trek curiosity_waypoints FID 11 (Vera Rubin Ridge); feature text: https://trek.nasa.gov/mars/jpl/assets/features/curiosity/vera_rubin_ridge.html"
     }

@@ -56,3 +56,17 @@ add_test(NAME sidepanel COMMAND test_sidepanel)
 set_tests_properties(sidepanel PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
 )
+
+add_executable(test_samplelog test_samplelog.cpp)
+target_link_libraries(test_samplelog PRIVATE cetus_core Qt6::Test)
+add_test(NAME samplelog COMMAND test_samplelog)
+set_tests_properties(samplelog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
+)
+
+add_executable(test_samplecollector test_samplecollector.cpp)
+target_link_libraries(test_samplecollector PRIVATE cetus_core Qt6::Test)
+add_test(NAME samplecollector COMMAND test_samplecollector)
+set_tests_properties(samplecollector PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
+)

@@ -2,10 +2,13 @@
 
 #include "data/RasterLayer.h"
 #include "data/SiteConfig.h"
+#include "app/SampleCollector.h"
+#include "app/SampleLog.h"
 #include "ui/LayerLegend.h"
 #include "ui/MapView.h"
 #include "ui/SidePanel.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QDockWidget>
 #include <QLabel>
@@ -77,6 +80,28 @@ MainWindow::MainWindow(QWidget *parent)
     zoomOutButton->setText(QStringLiteral("-"));
     toolBar->addWidget(zoomOutButton);
 
+    // Always-visible twin of the panel collect button: at the demo window size
+    // the panel's own button can sit below the fold, so the everyday action
+    // also lives in the map toolbar.
+    m_collectToolbarButton = new QToolButton(this);
+    m_collectToolbarButton->setObjectName(
+        QStringLiteral("collectSampleToolbarButton"));
+    m_collectToolbarButton->setText(tr("COLLECT SAMPLE"));
+    m_collectToolbarButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_collectToolbarButton->setMinimumHeight(32);
+    m_collectToolbarButton->setEnabled(false);
+    m_collectToolbarButton->setToolTip(
+        tr("Appends a field note to the session log; no physical sample is "
+           "claimed."));
+    m_collectToolbarButton->setStyleSheet(
+        QStringLiteral("QToolButton { min-height: 32px; font-size: 14px;"
+                       " font-weight: bold; color: #1c1612;"
+                       " background: #ffbe3c; border: 2px solid #ffd97a;"
+                       " border-radius: 6px; padding: 4px 12px; }"
+                       "QToolButton:disabled { color: #6b5b45;"
+                       " background: #4a3d33; border: 2px solid #6b5b45; }"));
+    toolBar->addWidget(m_collectToolbarButton);
+
     // Permanent cursor readout (projected metres) in the status bar.
     m_cursorLabel = new QLabel(this);
     m_cursorLabel->setObjectName(QStringLiteral("cursorLabel"));
@@ -92,10 +117,15 @@ MainWindow::MainWindow(QWidget *parent)
         m_mapView->setRegistry(&m_registry);
         m_legend->setRegistry(&m_registry, m_mapView->visibleLayerIds());
     }
-    if (layersLoaded())
+    if (layersLoaded()) {
         loadMission();
+        if (m_scenarioLoaded)
+            openSampleLog();
+    }
     updateStatus();
 
+    connect(m_sidePanel, &SidePanel::collectSampleRequested, this,
+            &MainWindow::collectSample);
     connect(m_legend, &LayerLegend::layerToggled, this,
             [this](const QString &layerId, bool visible) {
                 m_mapView->setLayerVisible(layerId, visible);
@@ -107,6 +137,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(zoomInButton, &QToolButton::clicked, m_mapView, &MapView::zoomIn);
     connect(zoomOutButton, &QToolButton::clicked, m_mapView,
             &MapView::zoomOut);
+    connect(m_collectToolbarButton, &QToolButton::clicked, this,
+            &MainWindow::collectSample);
     connect(m_mapView, &MapView::cursorMoved, this,
             [this](double eastingM, double northingM) {
                 m_cursorLabel->setText(
@@ -115,6 +147,8 @@ MainWindow::MainWindow(QWidget *parent)
                         .arg(northingM, 0, 'f', 0));
             });
 }
+
+MainWindow::~MainWindow() = default;
 
 void MainWindow::showEvent(QShowEvent *event)
 {
@@ -287,6 +321,119 @@ SidePanel *MainWindow::sidePanel() const
     return m_sidePanel;
 }
 
+const SampleCollector *MainWindow::sampleCollector() const
+{
+    return m_collector.get();
+}
+
+int MainWindow::sampleCount() const
+{
+    return m_collector ? m_collector->log().sampleCount() : 0;
+}
+
+QString MainWindow::sampleLogPath() const
+{
+    return m_collector ? m_collector->logPath() : QString();
+}
+
+void MainWindow::openSampleLog()
+{
+    const RasterLayer *dem = m_registry.layer(QStringLiteral("hirise_dem"));
+    const QString path = SampleLog::defaultPath();
+    m_collector = std::make_unique<SampleCollector>(dem, path);
+
+    QString error;
+    if (!m_collector->load(&error)) {
+        m_sampleError = error;
+        qCritical().noquote() << "Cetus: sample log load failed:" << error;
+        m_sidePanel->setSampleLogError(error);
+        m_sidePanel->setCollectTarget(QString());
+        if (m_collectToolbarButton)
+            m_collectToolbarButton->setEnabled(false);
+        return;
+    }
+
+    m_sampleError.clear();
+    m_sidePanel->setSampleLogError(QString());
+    m_sidePanel->setCollectTarget(m_primaryTargetId);
+
+    // The toolbar button is enabled only when there is a target to log at;
+    // the tooltip names that target and never claims a physical sample.
+    if (m_collectToolbarButton) {
+        const bool canCollect = !m_primaryTargetId.isEmpty();
+        m_collectToolbarButton->setEnabled(canCollect);
+        if (canCollect) {
+            m_collectToolbarButton->setToolTip(
+                tr("Collect a field note at %1.").arg(m_primaryTargetId));
+        }
+    }
+}
+
+void MainWindow::collectSample()
+{
+    if (!m_collector || !m_collector->isReady()) {
+        m_sampleError = QStringLiteral(
+            "sample log is not ready; cannot append a field note.");
+        qCritical().noquote() << "Cetus: sample collection failed:"
+                              << m_sampleError;
+        m_sidePanel->setSampleLogError(m_sampleError);
+        updateStatus();
+        return;
+    }
+
+    const ScienceTarget *target = nullptr;
+    for (const RankedTarget &ranked : m_rankedTargets) {
+        if (ranked.target.id == m_primaryTargetId) {
+            target = &ranked.target;
+            break;
+        }
+    }
+    if (!target) {
+        m_sampleError = QStringLiteral(
+            "no primary target is available; cannot append a field note.");
+        qCritical().noquote() << "Cetus: sample collection failed:"
+                              << m_sampleError;
+        m_sidePanel->setSampleLogError(m_sampleError);
+        updateStatus();
+        return;
+    }
+
+    // [demo] M4 owns the live mission state; the M6 demo logs on sol 3.
+    constexpr int kDemoSol = 3;
+
+    SampleRecord record;
+    QString error;
+    if (!m_collector->collect(*target, kDemoSol,
+                              QDateTime::currentDateTimeUtc(), &record,
+                              &error)) {
+        m_sampleError = error;
+        qCritical().noquote() << "Cetus: sample collection failed:" << error;
+        m_sidePanel->setSampleLogError(error);
+        updateStatus();
+        return;
+    }
+
+    m_sampleError.clear();
+    m_sidePanel->setSampleLogError(QString());
+    // The visible note carries the geotag and orientation so the crew can
+    // check where the field note was taken and how it was levelled.
+    const QString summary =
+        QStringLiteral("%1 %2\nE %3 m · N %4 m\n"
+                       "up (%5, %6, %7) · slope %8°\n%9")
+            .arg(record.targetId, record.targetName)
+            .arg(record.eastingM, 0, 'f', 2)
+            .arg(record.northingM, 0, 'f', 2)
+            .arg(record.upEast, 0, 'f', 2)
+            .arg(record.upNorth, 0, 'f', 2)
+            .arg(record.upUp, 0, 'f', 2)
+            .arg(record.slopeDeg, 0, 'f', 1)
+            .arg(record.phenomenon);
+    m_sidePanel->setLatestSample(record.id, summary,
+                                 m_collector->log().sampleCount());
+    m_sidePanel->revealLatestSample();
+    updateStatus();
+}
+
 void MainWindow::updateStatus()
 {
     if (!m_loadError.isEmpty()) {
@@ -297,6 +444,11 @@ void MainWindow::updateStatus()
     if (!m_missionError.isEmpty()) {
         statusBar()->showMessage(
             QStringLiteral("MISSION DATA FAILED: %1").arg(m_missionError));
+        return;
+    }
+    if (!m_sampleError.isEmpty()) {
+        statusBar()->showMessage(
+            QStringLiteral("SAMPLE LOG FAILED: %1").arg(m_sampleError));
         return;
     }
 
@@ -323,6 +475,10 @@ void MainWindow::updateStatus()
         // Scenario data loaded but no target has a valid route. Say so rather
         // than implying the plan succeeded.
         text += QStringLiteral(" · NO SAFE ROUTE");
+    }
+    if (m_collector && m_collector->log().sampleCount() > 0) {
+        text += QStringLiteral(" · %1 LOGGED")
+                    .arg(m_collector->log().records().constLast().id);
     }
     statusBar()->showMessage(text);
 }

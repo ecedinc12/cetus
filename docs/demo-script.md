@@ -32,9 +32,11 @@ Target length: **2–3 minutes**. Everything runs offline from local assets.
    farthest, lowest-value target (T3), re-ranks, and reroutes to keep walkback
    margin. Warning banner explains *why*.
 
-6. **Act (25 s).** Astronaut reaches T2, samples, and the tool geotags the
-   sample, records orientation, and logs chain of custody. Show the field-note
-   entry auto-filled.
+6. **Act (25 s).** Astronaut reaches a target and presses COLLECT SAMPLE. The
+   tool assigns `SAMPLE-<sol>-<n>`, geotags the Mars Trek target pin, records
+   the DEM up-vector and slope, and appends the auto-filled field note. State
+   plainly that this is a field note: no physical sample and no composition
+   measurement is claimed.
 
 7. **Close (10 s).** One sentence on NASA data used and the safety model.
 
