@@ -28,6 +28,9 @@ struct RankedTarget
     double travelMinutes = 0.0;
     double valueRate = 0.0;
     bool reachable = false;
+    // Set by the mission layer (M4): a route exists but the walkback rule
+    // (Walkback::evaluate) rejects it. Ranking itself never sets this.
+    bool walkbackFailed = false;
 };
 
 class TargetRanking

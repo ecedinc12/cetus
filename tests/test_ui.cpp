@@ -26,6 +26,9 @@ private slots:
     void fitAndRender();
     void plansMissionOnStartup();
     void panelExplainsTheRecommendation();
+    void walkbackRejectsFarTarget();
+    void advanceScenarioWalksS0ToS4AndWraps();
+    void planChainsTargetsWithinBudget();
     void missingAssetsFailLoudly();
     void missionFailureIsLoud();
 
@@ -231,6 +234,170 @@ void TestMainWindow::panelExplainsTheRecommendation()
         }
     }
     QVERIFY2(hasExpectedWarning, qPrintable(warnings.join(QLatin1Char('|'))));
+}
+
+void TestMainWindow::walkbackRejectsFarTarget()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    QVERIFY(w.scenarioLoaded());
+
+    // At the 360 min design budget T1 and T2 fit; T3 has a route but fails
+    // the walkback rule, so it must be flagged, never recommended.
+    bool sawT3 = false;
+    for (const RankedTarget &ranked : w.rankedTargets()) {
+        if (ranked.target.id == QStringLiteral("T3")) {
+            sawT3 = true;
+            QVERIFY(ranked.reachable);
+            QVERIFY(ranked.walkbackFailed);
+        } else {
+            QVERIFY2(!ranked.walkbackFailed,
+                     qPrintable(ranked.target.id));
+        }
+    }
+    QVERIFY(sawT3);
+    QVERIFY(w.primaryTargetId() != QStringLiteral("T3"));
+
+    SidePanel *panel = w.sidePanel();
+    QVERIFY(panel);
+    QVERIFY2(panel->walkbackText().contains(QStringLiteral("WITHIN BUDGET")),
+             qPrintable(panel->walkbackText()));
+
+    bool hasT3Warning = false;
+    for (const QString &warning : panel->warningTexts()) {
+        if (warning.startsWith(QStringLiteral("T3")) &&
+            warning.contains(QStringLiteral("walkback"),
+                             Qt::CaseInsensitive))
+            hasT3Warning = true;
+    }
+    QVERIFY2(hasT3Warning,
+             qPrintable(panel->warningTexts().join(QLatin1Char('|'))));
+
+    auto *row = panel->findChild<QLabel *>(QStringLiteral("targetRow_T3"));
+    QVERIFY(row);
+    QVERIFY2(row->text().contains(QStringLiteral("WALKBACK FAIL")),
+             qPrintable(row->text()));
+}
+
+void TestMainWindow::advanceScenarioWalksS0ToS4AndWraps()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    QVERIFY(w.scenarioLoaded());
+    SidePanel *panel = w.sidePanel();
+    QVERIFY(panel);
+
+    const auto failed = [&w](const QString &id) {
+        for (const RankedTarget &ranked : w.rankedTargets()) {
+            if (ranked.target.id == id)
+                return ranked.walkbackFailed;
+        }
+        return false;
+    };
+
+    // S0: nominal, T1 recommended, only T3 fails walkback.
+    QCOMPARE(w.scenarioStepIndex(), 0);
+    QCOMPARE(w.primaryTargetId(), QStringLiteral("T1"));
+    QVERIFY(!failed(QStringLiteral("T2")));
+    QVERIFY(failed(QStringLiteral("T3")));
+
+    // S1: dust rising, plan unchanged.
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 1);
+    QCOMPARE(w.primaryTargetId(), QStringLiteral("T1"));
+    QVERIFY(!failed(QStringLiteral("T2")));
+
+    // S2: storm cuts the budget to 90 min; T2 now fails walkback, T1 stays.
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 2);
+    QCOMPARE(w.missionState().timeBudgetMin, 90.0);
+    QCOMPARE(w.missionState().tau, 1.1);
+    QCOMPARE(w.primaryTargetId(), QStringLiteral("T1"));
+    QVERIFY(!failed(QStringLiteral("T1")));
+    QVERIFY(failed(QStringLiteral("T2")));
+    QVERIFY(failed(QStringLiteral("T3")));
+    QVERIFY(w.route().valid);
+
+    // S3: comms closed, no functional change.
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 3);
+    QVERIFY(w.missionState().commsClosed);
+    QCOMPARE(w.primaryTargetId(), QStringLiteral("T1"));
+    QVERIFY2(w.statusBar()->currentMessage().contains(
+                 QStringLiteral("COMMS OFFLINE")),
+             qPrintable(w.statusBar()->currentMessage()));
+
+    // S4: science disabled. The ROUTE header must say so, not "NO SAFE
+    // ROUTE" (a safe route to T1 exists; science is off on purpose).
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 4);
+    QVERIFY(w.scienceDisabled());
+    QVERIFY(w.primaryTargetId().isEmpty());
+    QVERIFY(!w.route().valid);
+    QVERIFY2(panel->routeSummaryText().contains(
+                 QStringLiteral("SCIENCE DISABLED")),
+             qPrintable(panel->routeSummaryText()));
+    QVERIFY2(!panel->routeSummaryText().contains(
+                 QStringLiteral("NO SAFE ROUTE")),
+             qPrintable(panel->routeSummaryText()));
+
+    // One more press wraps back to S0 and restores the nominal plan.
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 0);
+    QVERIFY(!w.scienceDisabled());
+    QCOMPARE(w.primaryTargetId(), QStringLiteral("T1"));
+    QVERIFY(w.route().valid);
+    QVERIFY(!panel->routeSummaryText().contains(
+        QStringLiteral("SCIENCE DISABLED")));
+}
+
+void TestMainWindow::planChainsTargetsWithinBudget()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    QVERIFY(w.scenarioLoaded());
+    QCOMPARE(w.missionState().elapsedMin, 0.0);
+
+    // S0 (360 min): T1 first (it is the primary target), then T2 chained
+    // from T1. T3 is too far to leave room for the walk back.
+    QStringList expected = {QStringLiteral("T1"), QStringLiteral("T2")};
+    QCOMPARE(w.missionPlan().ids(), expected);
+    QCOMPARE(w.missionPlan().steps.first().targetId, w.primaryTargetId());
+    QVERIFY(w.missionPlan().elapsedAfterMin <= 360.0);
+    QVERIFY(w.missionPlan().marginMin >= 0.0);
+    // Elapsed time only grows along the chain.
+    QVERIFY(w.missionPlan().steps.at(1).elapsedAfterMin >
+            w.missionPlan().steps.at(0).elapsedAfterMin);
+    SidePanel *panel = w.sidePanel();
+    QVERIFY(panel);
+    auto *consumables =
+        panel->findChild<QLabel *>(QStringLiteral("consumablesLabel"));
+    QVERIFY(consumables);
+    QVERIFY2(consumables->text().contains(QStringLiteral("PLAN: T1")),
+             qPrintable(consumables->text()));
+    QVERIFY2(consumables->text().contains(QStringLiteral("T2")),
+             qPrintable(consumables->text()));
+
+    // S2 (90 min): T2 no longer fits after T1 (needs > 90 min whatever the
+    // leg is), so the plan is T1 alone.
+    w.advanceScenario();
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 2);
+    expected = {QStringLiteral("T1")};
+    QCOMPARE(w.missionPlan().ids(), expected);
+    QVERIFY(w.missionPlan().elapsedAfterMin <= 90.0);
+
+    // S4: science disabled, no plan.
+    w.advanceScenario();
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 4);
+    QVERIFY(w.missionPlan().steps.isEmpty());
 }
 
 void TestMainWindow::missingAssetsFailLoudly()

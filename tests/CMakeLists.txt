@@ -50,9 +50,24 @@ set_tests_properties(routing PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
 )
 
+add_executable(test_walkback test_walkback.cpp)
+target_link_libraries(test_walkback PRIVATE cetus_core Qt6::Test)
+add_test(NAME walkback COMMAND test_walkback)
+set_tests_properties(walkback PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
+)
+
+add_executable(test_scenario test_scenario.cpp)
+target_link_libraries(test_scenario PRIVATE cetus_core Qt6::Test)
+add_test(NAME scenario COMMAND test_scenario)
+
 add_executable(test_sidepanel test_sidepanel.cpp)
 target_link_libraries(test_sidepanel PRIVATE cetus_core Qt6::Test)
 add_test(NAME sidepanel COMMAND test_sidepanel)
 set_tests_properties(sidepanel PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
 )
+
+add_executable(test_missionplan test_missionplan.cpp)
+target_link_libraries(test_missionplan PRIVATE cetus_core Qt6::Test)
+add_test(NAME missionplan COMMAND test_missionplan)

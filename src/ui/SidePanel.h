@@ -26,12 +26,20 @@ public:
     void setRankedTargets(const QVector<RankedTarget> &targets);
     void setPrimaryTarget(const RankedTarget &primary, const Route &route);
     void setConsumablesText(const QString &text);
+    // Walkback status line shown under the route summary (M4).
+    void setWalkbackText(const QString &text);
+    // Replaces the ROUTE header text. setPrimaryTarget() writes "NO SAFE
+    // ROUTE" for any invalid route; callers use this when there is no route
+    // for a reason other than terrain (science disabled, nothing fits the
+    // time budget) so the header does not say the terrain is unsafe.
+    void setRouteSummaryText(const QString &text);
     void setWarnings(const QStringList &warnings);
 
     QString scienceGoalText() const;
     QString primaryTargetId() const;
     QString primaryTargetWhy() const;
     QString routeSummaryText() const;
+    QString walkbackText() const;
     QStringList warningTexts() const;
     int rankedTargetCount() const;
 

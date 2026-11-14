@@ -18,6 +18,8 @@ add_library(cetus_core STATIC
     src/app/MissionState.cpp
     src/app/MissionScenario.h
     src/app/MissionScenario.cpp
+    src/app/ScenarioSteps.h
+    src/app/ScenarioSteps.cpp
     src/data/DatasetRegistry.h
     src/data/DatasetRegistry.cpp
     src/data/RasterLayer.h
@@ -32,6 +34,10 @@ add_library(cetus_core STATIC
     src/analysis/TargetRanking.cpp
     src/routing/TraversePlanner.h
     src/routing/TraversePlanner.cpp
+    src/routing/Walkback.h
+    src/routing/Walkback.cpp
+    src/routing/MissionPlan.h
+    src/routing/MissionPlan.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/MapView.h

@@ -2,6 +2,7 @@
 
 #include "data/RasterLayer.h"
 #include "data/SiteConfig.h"
+#include "routing/Walkback.h"
 #include "ui/LayerLegend.h"
 #include "ui/MapView.h"
 #include "ui/SidePanel.h"
@@ -22,10 +23,12 @@ namespace {
 constexpr const char *kScienceGoal =
     "Gale Crater, Mount Sharp: characterize fracture-filling mineral phases "
     "and reconstruct past fluid chemistry.";
-// Static MissionState snapshot (M4 links live consumables to the mission).
-constexpr const char *kConsumablesSnapshot =
-    "O2 100% \u00b7 POWER 100% \u00b7 WATER 100% \u2014 static snapshot "
-    "(M4 links mission state)";
+
+// Order-independent key for a target pair (the traverse cost is symmetric).
+QString pairKey(const QString &a, const QString &b)
+{
+    return a < b ? a + QLatin1Char('|') + b : b + QLatin1Char('|') + a;
+}
 }  // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -77,6 +80,14 @@ MainWindow::MainWindow(QWidget *parent)
     zoomOutButton->setText(QStringLiteral("-"));
     toolBar->addWidget(zoomOutButton);
 
+    // One header control for the scripted demo scenario (PLAN.md §6).
+    toolBar->addSeparator();
+    m_advanceButton = new QToolButton(this);
+    m_advanceButton->setObjectName(QStringLiteral("advanceButton"));
+    m_advanceButton->setText(tr("Advance scenario"));
+    m_advanceButton->setEnabled(false);
+    toolBar->addWidget(m_advanceButton);
+
     // Permanent cursor readout (projected metres) in the status bar.
     m_cursorLabel = new QLabel(this);
     m_cursorLabel->setObjectName(QStringLiteral("cursorLabel"));
@@ -94,6 +105,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
     if (layersLoaded())
         loadMission();
+    updateAdvanceButton();
     updateStatus();
 
     connect(m_legend, &LayerLegend::layerToggled, this,
@@ -107,6 +119,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(zoomInButton, &QToolButton::clicked, m_mapView, &MapView::zoomIn);
     connect(zoomOutButton, &QToolButton::clicked, m_mapView,
             &MapView::zoomOut);
+    connect(m_advanceButton, &QToolButton::clicked, this,
+            &MainWindow::advanceScenario);
     connect(m_mapView, &MapView::cursorMoved, this,
             [this](double eastingM, double northingM) {
                 m_cursorLabel->setText(
@@ -138,6 +152,9 @@ void MainWindow::loadMission()
 {
     m_missionError.clear();
     m_scenarioLoaded = false;
+    m_missionReady = false;
+    m_stepIndex = 0;
+    m_state = MissionState();
 
     QString error;
     if (!MissionScenario::loadFromFile(SiteConfig::scenarioPath(), &m_scenario,
@@ -161,38 +178,99 @@ void MainWindow::loadMission()
         return;
     }
 
-    QHash<QString, Route> routeById;
-    QHash<QString, double> travelById;
-    routeById.reserve(m_scenario.targets.size());
-    travelById.reserve(m_scenario.targets.size());
+    // Terrain does not change between scenario steps, so the routes are
+    // planned once here.
+    m_routeById.clear();
+    m_travelById.clear();
+    m_routeById.reserve(m_scenario.targets.size());
+    m_travelById.reserve(m_scenario.targets.size());
     for (const ScienceTarget &target : m_scenario.targets) {
         const Route planned =
             TraversePlanner::planToTarget(m_hazard, m_scenario.crewStart,
                                           target);
-        routeById.insert(target.id, planned);
+        m_routeById.insert(target.id, planned);
         // Negative means unreachable; never fabricate a travel time.
-        travelById.insert(target.id,
-                          planned.valid ? planned.timeMin : -1.0);
+        m_travelById.insert(target.id,
+                            planned.valid ? planned.timeMin : -1.0);
     }
+    // Target-to-target leg times for the greedy multi-target plan. Edge costs
+    // are symmetric, so one plan per unordered pair serves both directions.
+    m_legByPair.clear();
+    for (int i = 0; i < m_scenario.targets.size(); ++i) {
+        for (int j = i + 1; j < m_scenario.targets.size(); ++j) {
+            const ScienceTarget &from = m_scenario.targets.at(i);
+            const ScienceTarget &to = m_scenario.targets.at(j);
+            const Route leg =
+                TraversePlanner::planToTarget(m_hazard, from.position(), to);
+            m_legByPair.insert(pairKey(from.id, to.id),
+                               leg.valid ? leg.timeMin : -1.0);
+        }
+    }
+    m_missionReady = true;
 
-    m_rankedTargets = TargetRanking::rank(m_scenario.targets, travelById);
+    replan(true);
+}
+
+void MainWindow::replan(bool firstLoad)
+{
+    const ScenarioStep &step = ScenarioSteps::at(m_stepIndex);
+
+    m_rankedTargets = TargetRanking::rank(m_scenario.targets, m_travelById);
+
+    // M4 walkback: a target with a route must also leave enough of the EVA
+    // time budget to walk back to the safe haven. The haven is the EVA start
+    // point (design choice: no real haven coordinate exists in the data), so
+    // the return path time equals the outbound path time (symmetric edge
+    // cost). The budget comes from the current scenario step (M5).
+    QHash<QString, WalkbackResult> walkbackById;
+    for (RankedTarget &ranked : m_rankedTargets) {
+        ranked.walkbackFailed = false;
+        if (!ranked.reachable)
+            continue;
+        const WalkbackResult check = Walkback::evaluate(
+            m_state.elapsedMin, ranked.travelMinutes,
+            ranked.target.minutesOnTarget, ranked.travelMinutes,
+            m_state.timeBudgetMin);
+        walkbackById.insert(ranked.target.id, check);
+        ranked.walkbackFailed = !check.feasible;
+    }
 
     m_primaryTargetId.clear();
     m_route = Route();
-    for (const RankedTarget &ranked : m_rankedTargets) {
-        if (ranked.reachable) {
-            m_primaryTargetId = ranked.target.id;
-            m_route = routeById.value(m_primaryTargetId);
-            break;
+    // S4 (scripted power event): science is disabled, no target is offered.
+    if (!step.scienceDisabled) {
+        for (const RankedTarget &ranked : m_rankedTargets) {
+            if (ranked.reachable && !ranked.walkbackFailed) {
+                m_primaryTargetId = ranked.target.id;
+                m_route = m_routeById.value(m_primaryTargetId);
+                break;
+            }
         }
     }
 
-    m_mapView->setCrewStart(m_scenario.crewStart);
+    // Greedy multi-target plan (PLAN.md 5.5 steps 3-4) from the EVA start.
+    // Its first step is the primary target above. S4 disables science, so the
+    // plan is empty there.
+    if (step.scienceDisabled) {
+        m_plan = MissionPlan();
+        m_plan.elapsedAfterMin = m_state.elapsedMin;
+    } else {
+        m_plan = MissionPlan::build(
+            m_scenario.targets, m_travelById,
+            [this](const QString &a, const QString &b) {
+                return m_legByPair.value(pairKey(a, b), -1.0);
+            },
+            m_state.elapsedMin, m_state.timeBudgetMin);
+    }
+
+    if (firstLoad) {
+        m_mapView->setCrewStart(m_scenario.crewStart);
+        const QImage hazardImage =
+            m_hazard.hazardImage(QSize(m_hazard.width(), m_hazard.height()));
+        m_mapView->setHazardOverlay(hazardImage, m_hazard.extentMeters());
+    }
     m_mapView->setTargets(m_rankedTargets, m_primaryTargetId);
     m_mapView->setRoute(m_route);
-    const QImage hazardImage =
-        m_hazard.hazardImage(QSize(m_hazard.width(), m_hazard.height()));
-    m_mapView->setHazardOverlay(hazardImage, m_hazard.extentMeters());
 
     m_sidePanel->setScienceGoal(QString::fromUtf8(kScienceGoal));
     m_sidePanel->setRankedTargets(m_rankedTargets);
@@ -205,15 +283,80 @@ void MainWindow::loadMission()
         }
     }
     m_sidePanel->setPrimaryTarget(primary, m_route);
-    m_sidePanel->setConsumablesText(QString::fromUtf8(kConsumablesSnapshot));
+
+    // setPrimaryTarget writes "NO SAFE ROUTE" for any invalid route. Two cases
+    // have no route for a reason other than terrain, so the header must say
+    // the real reason instead of implying unsafe terrain.
+    if (step.scienceDisabled) {
+        m_sidePanel->setRouteSummaryText(QStringLiteral(
+            "SCIENCE DISABLED: no science route (scripted power event)"));
+    } else if (m_primaryTargetId.isEmpty()) {
+        bool anyReachable = false;
+        for (const RankedTarget &ranked : m_rankedTargets) {
+            if (ranked.reachable)
+                anyReachable = true;
+        }
+        if (anyReachable) {
+            m_sidePanel->setRouteSummaryText(QStringLiteral(
+                "NO TARGET WITHIN BUDGET: routes exist but none passes "
+                "the walkback check"));
+        }
+    }
+
+    if (step.scienceDisabled) {
+        m_sidePanel->setWalkbackText(QStringLiteral(
+            "SCIENCE DISABLED: return to the haven (EVA start). Crew "
+            "position is not simulated."));
+        m_sidePanel->setConsumablesText(QStringLiteral(
+            "TIME: no science plan. O2 / POWER / WATER: not modeled (the "
+            "power drop is a scripted scenario event)."));
+    } else if (!m_primaryTargetId.isEmpty() && m_route.valid &&
+               walkbackById.contains(m_primaryTargetId)) {
+        const WalkbackResult check = walkbackById.value(m_primaryTargetId);
+        m_sidePanel->setWalkbackText(
+            QStringLiteral("WALKBACK WITHIN BUDGET: return ~%1 min (x%2) + "
+                           "%3 min reserve, margin %4 min. Haven = EVA "
+                           "start [design choice].")
+                .arg(check.returnMin, 0, 'f', 0)
+                .arg(Walkback::kReturnFactor, 0, 'f', 1)
+                .arg(Walkback::kReserveMin, 0, 'f', 0)
+                .arg(check.marginMin, 0, 'f', 0));
+        m_sidePanel->setConsumablesText(
+            QStringLiteral("PLAN: %1. TIME: %2 of %3 min EVA budget used "
+                           "after the plan, walkback margin %4 min [budget "
+                           "is a design choice]. O2 / POWER / WATER: not "
+                           "modeled (no endurance data).")
+                .arg(m_plan.steps.isEmpty() ? m_primaryTargetId
+                                            : m_plan.summary())
+                .arg(m_plan.steps.isEmpty() ? check.elapsedAfterMin
+                                            : m_plan.elapsedAfterMin,
+                     0, 'f', 0)
+                .arg(m_state.timeBudgetMin, 0, 'f', 0)
+                .arg(m_plan.steps.isEmpty() ? check.marginMin
+                                            : m_plan.marginMin,
+                     0, 'f', 0));
+    } else {
+        m_sidePanel->setWalkbackText(
+            QStringLiteral("Walkback: no target passes the check."));
+        m_sidePanel->setConsumablesText(
+            QStringLiteral("TIME: no plan. O2 / POWER / WATER: not modeled "
+                           "(no endurance data)."));
+    }
 
     QStringList warnings;
+    if (!step.banner.isEmpty())
+        warnings.append(step.banner);
     if (!m_route.warning.isEmpty())
         warnings.append(m_route.warning);
     for (const RankedTarget &ranked : m_rankedTargets) {
         if (!ranked.reachable) {
             warnings.append(QStringLiteral("%1 %2 has no safe route.")
                                 .arg(ranked.target.id, ranked.target.name));
+        } else if (ranked.walkbackFailed) {
+            warnings.append(QStringLiteral("%1 %2: %3")
+                                .arg(ranked.target.id, ranked.target.name,
+                                     walkbackById.value(ranked.target.id)
+                                         .reason));
         }
     }
     const HazardMap::Stats stats = m_hazard.stats();
@@ -230,6 +373,37 @@ void MainWindow::loadMission()
 
     m_scenarioLoaded = m_hazard.isValid() && !m_primaryTargetId.isEmpty() &&
                        m_route.valid;
+}
+
+void MainWindow::advanceScenario()
+{
+    if (!m_missionReady)
+        return;
+
+    m_stepIndex = (m_stepIndex + 1) % ScenarioSteps::count();
+    const ScenarioStep &step = ScenarioSteps::at(m_stepIndex);
+    m_state.tau = step.tau;
+    m_state.timeBudgetMin = step.timeBudgetMin;
+    m_state.commsClosed = step.commsClosed;
+    m_state.commsOfflineMin = step.commsOfflineMin;
+
+    replan(false);
+    if (m_route.valid)
+        m_mapView->fitToRoute();
+    updateAdvanceButton();
+    updateStatus();
+}
+
+void MainWindow::updateAdvanceButton()
+{
+    if (!m_advanceButton)
+        return;
+    m_advanceButton->setEnabled(m_missionReady);
+    const bool atLast = m_stepIndex >= ScenarioSteps::count() - 1;
+    m_advanceButton->setText(
+        atLast ? tr("Restart scenario")
+               : tr("Advance scenario (%1)").arg(
+                     ScenarioSteps::at(m_stepIndex).id));
 }
 
 const DatasetRegistry &MainWindow::registry() const
@@ -287,6 +461,31 @@ SidePanel *MainWindow::sidePanel() const
     return m_sidePanel;
 }
 
+int MainWindow::scenarioStepIndex() const
+{
+    return m_stepIndex;
+}
+
+const ScenarioStep &MainWindow::scenarioStep() const
+{
+    return ScenarioSteps::at(m_stepIndex);
+}
+
+const MissionState &MainWindow::missionState() const
+{
+    return m_state;
+}
+
+const MissionPlan &MainWindow::missionPlan() const
+{
+    return m_plan;
+}
+
+bool MainWindow::scienceDisabled() const
+{
+    return m_missionReady && ScenarioSteps::at(m_stepIndex).scienceDisabled;
+}
+
 void MainWindow::updateStatus()
 {
     if (!m_loadError.isEmpty()) {
@@ -302,13 +501,27 @@ void MainWindow::updateStatus()
 
     const int layerCount = static_cast<int>(m_registry.layers().size());
     const int visibleCount = m_mapView->visibleLayerIds().size();
-    QString text = QStringLiteral("SOL 3 · 08:40 · TAU 0.6 · %1 layers · %2 visible")
-                       .arg(layerCount)
-                       .arg(visibleCount);
+    QString text =
+        QStringLiteral("SOL %1 · %2 · TAU %3 · %4 layers · %5 visible")
+            .arg(m_state.sol)
+            .arg(m_state.clock.toString(QStringLiteral("HH:mm")))
+            .arg(m_state.tau, 0, 'f', 1)
+            .arg(layerCount)
+            .arg(visibleCount);
     if (visibleCount == 0)
         text += QStringLiteral(" · NO LAYERS VISIBLE");
+    if (m_missionReady) {
+        text += QStringLiteral(" · SCENARIO %1")
+                    .arg(ScenarioSteps::at(m_stepIndex).id);
+    }
+    if (m_state.commsClosed) {
+        text += QStringLiteral(" · COMMS OFFLINE +%1 MIN")
+                    .arg(m_state.commsOfflineMin);
+    }
 
-    if (m_scenarioLoaded && m_route.valid) {
+    if (scienceDisabled()) {
+        text += QStringLiteral(" · SCIENCE DISABLED · RETURN TO HAVEN");
+    } else if (m_scenarioLoaded && m_route.valid) {
         QString name;
         for (const RankedTarget &ranked : m_rankedTargets) {
             if (ranked.target.id == m_primaryTargetId) {
@@ -320,9 +533,15 @@ void MainWindow::updateStatus()
                     .arg(m_primaryTargetId, name)
                     .arg(qRound(m_route.distanceM));
     } else if (!m_scenario.targets.isEmpty()) {
-        // Scenario data loaded but no target has a valid route. Say so rather
-        // than implying the plan succeeded.
-        text += QStringLiteral(" · NO SAFE ROUTE");
+        // Scenario data loaded but no target can be recommended. Say so
+        // rather than implying the plan succeeded.
+        bool anyRoute = false;
+        for (const RankedTarget &ranked : m_rankedTargets) {
+            if (ranked.reachable)
+                anyRoute = true;
+        }
+        text += anyRoute ? QStringLiteral(" · NO TARGET WITHIN BUDGET")
+                         : QStringLiteral(" · NO SAFE ROUTE");
     }
     statusBar()->showMessage(text);
 }

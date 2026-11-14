@@ -108,11 +108,14 @@ SidePanel::SidePanel(QWidget *parent)
         QStringLiteral("font-size: 15px; font-weight: bold; color: #7fe6ff;"));
     m_contentLayout->addWidget(m_routeSummaryLabel);
 
-    // M3 deliberately does not claim walkback/consumable safety; that is M4.
-    m_walkbackNote = new QLabel(tr("Walkback: pending M4"), m_content);
+    // Walkback status (M4). Until a plan is checked it says so; it never
+    // implies the route is safe.
+    m_walkbackNote = new QLabel(tr("Walkback: pending (no plan to check)"),
+                                m_content);
     m_walkbackNote->setObjectName(QStringLiteral("walkbackNote"));
+    m_walkbackNote->setWordWrap(true);
     m_walkbackNote->setStyleSheet(
-        QStringLiteral("font-size: 12px; color: #b4a89c;"));
+        QStringLiteral("font-size: 13px; color: #b4a89c;"));
     m_contentLayout->addWidget(m_walkbackNote);
 
     addSectionHeader(m_contentLayout, m_content, tr("NEXT TARGET"));
@@ -213,6 +216,7 @@ void SidePanel::updateWrappedHeights()
     for (QLabel *row : m_targetRows)
         setLabelMinimum(row, kRowBaseHeight);
     setLabelMinimum(m_routeSummaryLabel, 0);
+    setLabelMinimum(m_walkbackNote, 0);
     setLabelMinimum(m_consumablesLabel, 0);
     setLabelMinimum(m_warningLabel, 0);
 }
@@ -267,6 +271,16 @@ void SidePanel::setConsumablesText(const QString &text)
     applyWrappedText(m_consumablesLabel, text);
 }
 
+void SidePanel::setWalkbackText(const QString &text)
+{
+    applyWrappedText(m_walkbackNote, text);
+}
+
+void SidePanel::setRouteSummaryText(const QString &text)
+{
+    applyWrappedText(m_routeSummaryLabel, text);
+}
+
 void SidePanel::setWarnings(const QStringList &warnings)
 {
     m_warningTexts = warnings;
@@ -303,6 +317,11 @@ QString SidePanel::routeSummaryText() const
     return m_routeSummaryLabel->text();
 }
 
+QString SidePanel::walkbackText() const
+{
+    return m_walkbackNote->text();
+}
+
 QStringList SidePanel::warningTexts() const
 {
     return m_warningTexts;
@@ -326,6 +345,11 @@ QString SidePanel::targetRowText(const RankedTarget &ranked)
 
     if (!ranked.reachable) {
         return QStringLiteral("%1 \u2014 %2 \u00b7 %3 \u00b7 UNREACHABLE")
+            .arg(head, travel, onTarget);
+    }
+
+    if (ranked.walkbackFailed) {
+        return QStringLiteral("%1 \u2014 %2 \u00b7 %3 \u00b7 WALKBACK FAIL")
             .arg(head, travel, onTarget);
     }
 
@@ -354,7 +378,7 @@ void SidePanel::rebuildTargetRows()
             QStringLiteral("font-size: 13px; color: #f5f0e8;"
                            " border: 1px solid #4a3d33; border-radius: 4px;"
                            " padding: 6px;");
-        if (!ranked.reachable) {
+        if (!ranked.reachable || ranked.walkbackFailed) {
             style += QStringLiteral(" color: #d9a49e;");
         }
         if (ranked.target.id == m_primaryId) {
