@@ -1,0 +1,62 @@
+{
+  "schema": "cetus.m3.scenario/1",
+  "source": "NASA Mars Trek — curiosity_waypoints and curiosity_path services",
+  "source_urls": [
+    "https://trek.nasa.gov/mars/trekarcgis/rest/services/curiosity_waypoints/MapServer/0",
+    "https://trek.nasa.gov/mars/trekarcgis/rest/services/curiosity_path/MapServer/0"
+  ],
+  "crs": {
+    "name": "Mars equirectangular, planetocentric, central meridian 137.39 E",
+    "proj4": "+proj=eqc +lat_ts=0 +lon_0=137.39 +R=3396190 +units=m +no_defs",
+    "radius_m": 3396190.0,
+    "central_meridian_deg": 137.39
+  },
+  "note": "Coordinates are NASA Mars Trek waypoint/path vertices (degrees, Mars body). Easting/northing are the same points transformed to the site's Mars equirectangular CRS. science_value (0..1) and minutes_on_target are scenario design choices [tunable], not NASA measurements.",
+  "crew": {
+    "id": "START",
+    "name": "EVA start",
+    "easting_m": -753.3972146034672,
+    "northing_m": -276224.80223393487,
+    "lon_deg": 137.3772897332912,
+    "lat_deg": -4.660079490499737,
+    "source": "Mars Trek curiosity_path vertex 6300 (the traverse point 138 m north of Pahrump Hills); projected with the site Mars CRS"
+  },
+  "targets": [
+    {
+      "id": "T1",
+      "name": "Pahrump Hills",
+      "easting_m": -756.135485790287,
+      "northing_m": -276363.057354002,
+      "lon_deg": 137.37724353716703,
+      "lat_deg": -4.66241193815176,
+      "science_value": 0.90,
+      "minutes_on_target": 12,
+      "why": "Oldest exposed Murray formation at the base of Mount Sharp. Jarosite at the Mojave drill site points to acidic water, so this outcrop records early fluid chemistry and habitability.",
+      "source": "NASA Mars Trek curiosity_waypoints FID 5 (Pahrump Hills); feature text: https://trek.nasa.gov/mars/jpl/assets/features/curiosity/pahrump_hills.html"
+    },
+    {
+      "id": "T2",
+      "name": "Marias Pass",
+      "easting_m": -1102.35727505766,
+      "northing_m": -276690.662501919,
+      "lon_deg": 137.37140256639952,
+      "lat_deg": -4.667938835464834,
+      "science_value": 0.95,
+      "minutes_on_target": 14,
+      "why": "Murray–Stimson contact. Bright halos around fractures are enriched in silica, recording fluid movement through the rock after deposition.",
+      "source": "NASA Mars Trek curiosity_waypoints FID 6 (Marias Pass); feature text: https://trek.nasa.gov/mars/jpl/assets/features/curiosity/marias_pass.html"
+    },
+    {
+      "id": "T3",
+      "name": "Vera Rubin Ridge",
+      "easting_m": -1285.075,
+      "northing_m": -279807.988,
+      "lon_deg": 137.36832,
+      "lat_deg": -4.72053,
+      "science_value": 0.85,
+      "minutes_on_target": 18,
+      "why": "CRISM observed a hematite-rich ridge. This iron oxide forms in association with water, so the ridge can constrain redox conditions and past habitability.",
+      "source": "NASA Mars Trek curiosity_waypoints FID 11 (Vera Rubin Ridge); feature text: https://trek.nasa.gov/mars/jpl/assets/features/curiosity/vera_rubin_ridge.html"
+    }
+  ]
+}

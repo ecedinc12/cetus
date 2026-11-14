@@ -3,15 +3,19 @@
 #include "data/DatasetRegistry.h"
 #include "data/RasterLayer.h"
 
+#include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QPointF>
+#include <QPolygonF>
 #include <QShowEvent>
 #include <QWheelEvent>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace {
 // M1b zoom clamp in metres per pixel: sub-metre detail (HiRISE-scale) at the
@@ -26,9 +30,64 @@ constexpr double kFitMargin = 0.05;
 constexpr QColor kLightText(245, 240, 232, 255);
 constexpr QColor kDarkBar(8, 6, 5, 170);
 
+// M3 overlay colours. Hazard grid is drawn at low opacity so the imagery
+// still reads underneath; route gets a dark casing plus a cyan core.
+constexpr QColor kHazardTint(220, 40, 30, 255);
+constexpr QColor kRouteCasing(4, 10, 14, 210);
+constexpr QColor kRouteCore(0, 220, 255);
+constexpr QColor kCrewGreen(80, 210, 90);
+constexpr QColor kTargetAmber(255, 190, 60);
+constexpr QColor kTargetRed(220, 60, 50);
+constexpr QColor kPrimaryOrange(255, 140, 0);
+
+// M3 fit-to-route context floor: even a short traverse keeps at least this
+// much visible span per axis so the crew sees the surrounding terrain.
+constexpr double kFitRouteMinSpanM = 500.0;
+constexpr double kFitRouteMargin = 0.15;
+// Labels sit slightly off the marker over a translucent dark backing.
+constexpr int kLabelOffsetX = 12;
+constexpr int kLabelOffsetY = 8;
+
 double clampMpp(double mpp)
 {
     return qBound(kMinMpp, mpp, kMaxMpp);
+}
+
+// M2 bottom-to-top draw order: Optical -> Hillshade -> Elevation -> Slope.
+// This is independent of RasterLayer::Kind's declaration order.
+int kindDrawRank(RasterLayer::Kind kind)
+{
+    switch (kind) {
+    case RasterLayer::Kind::Optical:
+        return 0;
+    case RasterLayer::Kind::Hillshade:
+        return 1;
+    case RasterLayer::Kind::Elevation:
+        return 2;
+    case RasterLayer::Kind::Slope:
+        return 3;
+    }
+    return 4;
+}
+
+// Resolve visible ids against the registry and sort them bottom-to-top.
+std::vector<const RasterLayer *> orderedVisibleLayers(
+    const DatasetRegistry *registry, const QStringList &visibleIds)
+{
+    std::vector<const RasterLayer *> layers;
+    if (!registry)
+        return layers;
+    layers.reserve(size_t(visibleIds.size()));
+    for (const QString &id : visibleIds) {
+        if (const RasterLayer *layer = registry->layer(id))
+            layers.push_back(layer);
+    }
+    std::stable_sort(layers.begin(), layers.end(),
+                     [](const RasterLayer *a, const RasterLayer *b) {
+                         return kindDrawRank(a->metadata().kind)
+                                < kindDrawRank(b->metadata().kind);
+                     });
+    return layers;
 }
 
 // Round `raw` metres to a 1/2/2.5/5/10 x 10^k value for the scale-bar label
@@ -130,22 +189,88 @@ QSize MapView::sizeHint() const
 void MapView::setRegistry(const DatasetRegistry *registry)
 {
     m_registry = registry;
+    const QStringList oldVisible = m_visibleLayerIds;
+    m_visibleLayerIds.clear();
     if (m_registry && m_registry->defaultLayer()) {
         m_activeLayerId = m_registry->defaultLayer()->metadata().id;
+        m_visibleLayerIds = QStringList{m_activeLayerId};
         fitToScene();
     } else {
         m_activeLayerId.clear();
         update();
         emit viewChanged();
     }
+    if (m_visibleLayerIds != oldVisible)
+        emit visibleLayersChanged();
 }
 
 void MapView::setActiveLayer(const QString &layerId)
 {
     if (!m_registry || !m_registry->layer(layerId))
         return;  // unknown ids are ignored
+    const QStringList oldVisible = m_visibleLayerIds;
     m_activeLayerId = layerId;
+    // M1 solo semantics: selecting a layer makes it the only visible one.
+    m_visibleLayerIds = QStringList{layerId};
     fitToScene();
+    if (m_visibleLayerIds != oldVisible)
+        emit visibleLayersChanged();
+}
+
+void MapView::setLayerVisible(const QString &layerId, bool visible)
+{
+    if (!m_registry || !m_registry->layer(layerId)) {
+        // Unknown ids / no registry are ignored, but the spec still wants a
+        // repaint request.
+        update();
+        return;
+    }
+    const bool wasVisible = m_visibleLayerIds.contains(layerId);
+    bool changed = false;
+    if (visible && !wasVisible) {
+        m_visibleLayerIds.append(layerId);
+        changed = true;
+    } else if (!visible && wasVisible) {
+        m_visibleLayerIds.removeAll(layerId);
+        changed = true;
+    }
+    if (changed)
+        emit visibleLayersChanged();
+    update();
+}
+
+bool MapView::isLayerVisible(const QString &layerId) const
+{
+    return m_visibleLayerIds.contains(layerId);
+}
+
+QStringList MapView::visibleLayerIds() const
+{
+    QStringList ids;
+    for (const RasterLayer *layer : orderedVisibleLayers(m_registry, m_visibleLayerIds))
+        ids.append(layer->metadata().id);
+    return ids;
+}
+
+void MapView::showAllLayers()
+{
+    if (!m_registry)
+        return;
+    const QStringList ids = m_registry->ids();
+    const bool changed = (ids != m_visibleLayerIds);
+    m_visibleLayerIds = ids;
+    update();
+    if (changed)
+        emit visibleLayersChanged();
+}
+
+void MapView::hideAllLayers()
+{
+    const bool changed = !m_visibleLayerIds.isEmpty();
+    m_visibleLayerIds.clear();
+    update();
+    if (changed)
+        emit visibleLayersChanged();
 }
 
 QString MapView::activeLayerId() const
@@ -157,14 +282,23 @@ void MapView::fitToScene()
 {
     QRectF extent;
     if (m_registry) {
-        const RasterLayer *active = activeLayer();
-        if (active) {
-            extent = active->info().extent;
-        } else {
-            // No active layer: union of every registry layer extent.
-            for (const auto &layer : m_registry->layers()) {
-                if (layer && layer->isValid())
-                    extent = extent.united(layer->info().extent);
+        // M2: fit the union of visible layer extents. With nothing visible,
+        // fall back to the active layer, then to every registry extent.
+        const std::vector<const RasterLayer *> visible =
+            orderedVisibleLayers(m_registry, m_visibleLayerIds);
+        for (const RasterLayer *layer : visible) {
+            if (layer->isValid())
+                extent = extent.united(layer->info().extent);
+        }
+        if (extent.width() <= 0.0 || extent.height() <= 0.0) {
+            const RasterLayer *active = activeLayer();
+            if (active && active->isValid()) {
+                extent = active->info().extent;
+            } else {
+                for (const auto &layer : m_registry->layers()) {
+                    if (layer && layer->isValid())
+                        extent = extent.united(layer->info().extent);
+                }
             }
         }
     }
@@ -218,6 +352,91 @@ void MapView::zoomOut()
     emit viewChanged();
 }
 
+void MapView::setRoute(const Route &route)
+{
+    m_route = route;
+    update();
+}
+
+void MapView::clearRoute()
+{
+    m_route = Route();
+    update();
+}
+
+void MapView::setTargets(const QVector<RankedTarget> &targets,
+                         const QString &primaryId)
+{
+    m_targets = targets;
+    m_primaryTargetId = primaryId;
+    update();
+}
+
+void MapView::setCrewStart(const QPointF &eastNorth)
+{
+    m_crewStart = eastNorth;
+    m_hasCrewStart = true;
+    update();
+}
+
+void MapView::setHazardOverlay(const QImage &image, const QRectF &extentMeters)
+{
+    m_hazardOverlay = image;
+    m_hazardExtent = extentMeters;
+    update();
+}
+
+void MapView::clearHazardOverlay()
+{
+    m_hazardOverlay = QImage();
+    m_hazardExtent = QRectF();
+    update();
+}
+
+const Route &MapView::route() const
+{
+    return m_route;
+}
+
+QVector<RankedTarget> MapView::targets() const
+{
+    return m_targets;
+}
+
+QPointF MapView::crewStart() const
+{
+    return m_crewStart;
+}
+
+void MapView::fitToRoute()
+{
+    if (!m_route.valid || m_route.points.isEmpty())
+        return;
+
+    double minX = m_route.points.first().x();
+    double maxX = minX;
+    double minY = m_route.points.first().y();
+    double maxY = minY;
+    for (const QPointF &point : m_route.points) {
+        minX = qMin(minX, point.x());
+        maxX = qMax(maxX, point.x());
+        minY = qMin(minY, point.y());
+        maxY = qMax(maxY, point.y());
+    }
+
+    const double spanX =
+        qMax((maxX - minX) * (1.0 + kFitRouteMargin), kFitRouteMinSpanM);
+    const double spanY =
+        qMax((maxY - minY) * (1.0 + kFitRouteMargin), kFitRouteMinSpanM);
+    m_center = QPointF((minX + maxX) / 2.0, (minY + maxY) / 2.0);
+
+    if (width() > 0 && height() > 0) {
+        m_mpp = clampMpp(qMax(spanX / width(), spanY / height()));
+    }
+    update();
+    emit viewChanged();
+}
+
 const RasterLayer *MapView::activeLayer() const
 {
     if (!m_registry || m_activeLayerId.isEmpty())
@@ -233,6 +452,111 @@ QPointF MapView::pixelToMeters(const QPointF &pixel) const
                    extent.bottom() - pixel.y() * m_mpp);
 }
 
+QPointF MapView::metersToPixel(const QPointF &meters) const
+{
+    const QRectF extent = visibleExtentMeters();
+    return QPointF((meters.x() - extent.left()) / m_mpp,
+                   (extent.bottom() - meters.y()) / m_mpp);
+}
+
+void MapView::drawOverlays(QPainter &painter) const
+{
+    const QRectF visible = visibleExtentMeters();
+
+    // Hazard grid: metre extent -> pixels. readImage-style north-up image
+    // (row 0 = north edge), drawn as-is and never flipped.
+    if (!m_hazardOverlay.isNull() && m_hazardExtent.isValid()
+        && m_hazardExtent.width() > 0.0 && m_hazardExtent.height() > 0.0) {
+        const QRectF target(
+            (m_hazardExtent.left() - visible.left()) / m_mpp,
+            (visible.bottom() - m_hazardExtent.bottom()) / m_mpp,
+            m_hazardExtent.width() / m_mpp,
+            m_hazardExtent.height() / m_mpp);
+        painter.save();
+        painter.setOpacity(0.30);
+        painter.drawImage(target, m_hazardOverlay);
+        painter.restore();
+    }
+
+    // Route: dark casing under a bright cyan core.
+    if (m_route.valid && m_route.points.size() >= 2) {
+        QPolygonF polyline;
+        polyline.reserve(m_route.points.size());
+        for (const QPointF &point : m_route.points)
+            polyline.append(metersToPixel(point));
+
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(kRouteCasing, 6, Qt::SolidLine, Qt::RoundCap,
+                            Qt::RoundJoin));
+        painter.drawPolyline(polyline);
+        painter.setPen(QPen(kRouteCore, 3, Qt::SolidLine, Qt::RoundCap,
+                            Qt::RoundJoin));
+        painter.drawPolyline(polyline);
+    }
+
+    const QRect viewport = rect();
+
+    // Small helper: draw text on a dark translucent backing. Labels are only
+    // placed when their marker is inside the viewport, so nothing is drawn
+    // completely outside the visible map.
+    const auto drawLabel = [&](const QPointF &pixel, const QString &text,
+                               const QColor &color) {
+        if (!viewport.contains(pixel.toPoint()))
+            return;
+        const QFontMetrics metrics(painter.font());
+        const QRect textBounds = metrics.boundingRect(text);
+        const QPoint backing(int(pixel.x()) + kLabelOffsetX,
+                             int(pixel.y()) - kLabelOffsetY
+                                 - textBounds.height());
+        const QRect labelRect(backing.x(), backing.y(),
+                              textBounds.width() + 10,
+                              textBounds.height() + 6);
+        painter.save();
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(8, 6, 5, 200));
+        painter.drawRect(labelRect);
+        painter.setPen(color);
+        painter.drawText(labelRect.adjusted(4, 0, -4, 0),
+                         Qt::AlignLeft | Qt::AlignVCenter, text);
+        painter.restore();
+    };
+
+    // Crew start: green dot with dark outline.
+    if (m_hasCrewStart) {
+        const QPointF pixel = metersToPixel(m_crewStart);
+        painter.setPen(QPen(QColor(10, 20, 10, 230), 2));
+        painter.setBrush(kCrewGreen);
+        painter.drawEllipse(pixel, 7.0, 7.0);
+        drawLabel(pixel, QStringLiteral("START"), kLightText);
+    }
+
+    // Science targets: amber = reachable, red ring = unreachable/no-go,
+    // primary = larger orange marker with its id/name.
+    for (const RankedTarget &ranked : m_targets) {
+        const QPointF pixel = metersToPixel(ranked.target.position());
+        const bool primary = !m_primaryTargetId.isEmpty()
+                             && ranked.target.id == m_primaryTargetId;
+
+        if (primary) {
+            painter.setPen(QPen(QColor(10, 8, 5, 230), 2));
+            painter.setBrush(kPrimaryOrange);
+            painter.drawEllipse(pixel, 9.0, 9.0);
+            drawLabel(pixel,
+                      QStringLiteral("%1 · %2")
+                          .arg(ranked.target.id, ranked.target.name),
+                      kPrimaryOrange);
+        } else if (ranked.reachable) {
+            painter.setPen(QPen(QColor(10, 8, 5, 230), 2));
+            painter.setBrush(kTargetAmber);
+            painter.drawEllipse(pixel, 5.0, 5.0);
+        } else {
+            painter.setPen(QPen(kTargetRed, 2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(pixel, 6.0, 6.0);
+        }
+    }
+}
+
 void MapView::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
@@ -241,22 +565,58 @@ void MapView::paintEvent(QPaintEvent *event)
 
     painter.fillRect(rect(), QColor(24, 18, 15)); // regolith backdrop
 
-    const RasterLayer *layer = activeLayer();
-    if (!m_registry || !layer) {
-        painter.setPen(QColor(214, 205, 195));
-        painter.drawText(rect(), Qt::AlignCenter,
-                         tr("MAP VIEW — no layers loaded"));
-        return;
-    }
+    const std::vector<const RasterLayer *> visible =
+        orderedVisibleLayers(m_registry, m_visibleLayerIds);
 
-    // readImage is north-up (row 0 = north edge): draw as-is, never flip.
-    const QImage img = layer->readImage(visibleExtentMeters(), size());
-    if (!img.isNull())
-        painter.drawImage(QPoint(0, 0), img);
+    bool first = true;
+    for (const RasterLayer *layer : visible) {
+        double opacity = 1.0;
+        if (!first) {
+            switch (layer->metadata().kind) {
+            case RasterLayer::Kind::Hillshade:
+                opacity = 0.55;
+                break;
+            case RasterLayer::Kind::Elevation:
+            case RasterLayer::Kind::Slope:
+                opacity = 0.50;
+                break;
+            case RasterLayer::Kind::Optical:
+                opacity = 1.0;
+                break;
+            }
+        }
+        painter.setOpacity(opacity);
+        // readImage is north-up (row 0 = north edge): draw as-is, never flip.
+        const QImage img = layer->readImage(visibleExtentMeters(), size());
+        if (!img.isNull())
+            painter.drawImage(QPoint(0, 0), img);
+        first = false;
+    }
+    painter.setOpacity(1.0);
+
+    // M3 analytic overlays sit above the rasters but below the fixed map
+    // chrome (north arrow, scale bar, attribution).
+    drawOverlays(painter);
 
     drawNorthArrow(painter, rect());
     drawScaleBar(painter, rect(), m_mpp);
-    drawAttribution(painter, rect(), layer->metadata());
+
+    if (visible.empty()) {
+        // Keep the field-equipment overlays even with no imagery; state the
+        // difference between "no data loaded" and "everything hidden".
+        painter.setPen(QColor(214, 205, 195));
+        painter.drawText(rect(), Qt::AlignCenter,
+                         m_registry ? tr("NO LAYERS VISIBLE")
+                                    : tr("MAP VIEW — no layers loaded"));
+        return;
+    }
+
+    // Attribution follows the active layer; when it is hidden or missing,
+    // use the topmost visible layer instead.
+    const RasterLayer *attribution = activeLayer();
+    if (!attribution || !m_visibleLayerIds.contains(attribution->metadata().id))
+        attribution = visible.back();
+    drawAttribution(painter, rect(), attribution->metadata());
 }
 
 void MapView::showEvent(QShowEvent *event)

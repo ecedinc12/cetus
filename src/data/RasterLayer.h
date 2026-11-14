@@ -9,6 +9,7 @@
 #include <QRectF>
 #include <QSize>
 #include <QString>
+#include <QVector>
 
 #include <memory>
 
@@ -60,6 +61,12 @@ public:
     // outside the raster or on nodata are fully transparent.
     QImage readImage(const QRectF &extentMeters,
                      const QSize &targetPixels) const;
+
+    // Row-major numeric samples, row 0 = north edge (same orientation as
+    // readImage). NaN means nodata/outside the raster. Returns an empty vector
+    // and sets *ok=false for invalid arguments or a GDAL read failure.
+    QVector<float> readValues(const QRectF &extentMeters, int width, int height,
+                              bool *ok = nullptr) const;
 
 private:
     struct Impl;

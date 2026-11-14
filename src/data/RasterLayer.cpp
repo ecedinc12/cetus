@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace
@@ -471,5 +472,129 @@ QImage RasterLayer::readImage(const QRectF &extentMeters,
                 normalizeToDisplay(value, meta.displayMin, meta.displayMax));
         }
     }
+    return out;
+}
+
+QVector<float> RasterLayer::readValues(const QRectF &extentMeters, int width,
+                                       int height, bool *ok) const
+{
+    if (ok)
+        *ok = false;
+    if (width <= 0 || height <= 0)
+        return QVector<float>();
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    QVector<float> out(width * height, nan);
+
+    if (!m_impl || !m_impl->dataset)
+        return QVector<float>();
+    const Info &info = m_impl->info;
+    if (info.width <= 0 || info.height <= 0 || info.pixelSizeX <= 0.0 ||
+        info.pixelSizeY <= 0.0)
+        return QVector<float>();
+
+    // Requested extent (normalised: x grows east, y grows north).
+    const double reqWest = qMin(extentMeters.left(), extentMeters.right());
+    const double reqEast = qMax(extentMeters.left(), extentMeters.right());
+    const double reqSouth = qMin(extentMeters.top(), extentMeters.bottom());
+    const double reqNorth = qMax(extentMeters.top(), extentMeters.bottom());
+    if (!std::isfinite(reqWest) || !std::isfinite(reqEast) ||
+        !std::isfinite(reqSouth) || !std::isfinite(reqNorth) ||
+        reqEast <= reqWest || reqNorth <= reqSouth)
+        return QVector<float>();
+
+    // Raster bounds (extent is north-up: bottom() is the north edge).
+    const double minX = qMin(info.extent.left(), info.extent.right());
+    const double maxX = qMax(info.extent.left(), info.extent.right());
+    const double minY = qMin(info.extent.top(), info.extent.bottom());
+    const double maxY = qMax(info.extent.top(), info.extent.bottom());
+
+    // Clip the request to the raster; disjoint -> all-NaN but valid.
+    const double intWest = qMax(reqWest, minX);
+    const double intEast = qMin(reqEast, maxX);
+    const double intSouth = qMax(reqSouth, minY);
+    const double intNorth = qMin(reqNorth, maxY);
+    if (intWest >= intEast || intSouth >= intNorth)
+    {
+        if (ok)
+            *ok = true;
+        return out;
+    }
+
+    // Integer source window in raster pixels (row 0 = north edge).
+    const double psx = info.pixelSizeX;
+    const double psy = info.pixelSizeY;
+    int sx0 = static_cast<int>(std::floor((intWest - minX) / psx));
+    int sx1 = static_cast<int>(std::ceil((intEast - minX) / psx));
+    int sy0 = static_cast<int>(std::floor((maxY - intNorth) / psy));
+    int sy1 = static_cast<int>(std::ceil((maxY - intSouth) / psy));
+    sx0 = std::clamp(sx0, 0, info.width);
+    sx1 = std::clamp(sx1, 0, info.width);
+    sy0 = std::clamp(sy0, 0, info.height);
+    sy1 = std::clamp(sy1, 0, info.height);
+    if (sx0 >= sx1 || sy0 >= sy1)
+    {
+        if (ok)
+            *ok = true;
+        return out;
+    }
+
+    // Destination sub-rect within the requested width*height grid, derived
+    // from the source window exactly like readImage().
+    const double srcWest = minX + sx0 * psx;
+    const double srcEast = minX + sx1 * psx;
+    const double srcNorth = maxY - sy0 * psy;
+    const double srcSouth = maxY - sy1 * psy;
+    const double scaleX = static_cast<double>(width) / (reqEast - reqWest);
+    const double scaleY = static_cast<double>(height) / (reqNorth - reqSouth);
+    int dx0 = static_cast<int>(std::floor((srcWest - reqWest) * scaleX));
+    int dx1 = static_cast<int>(std::ceil((srcEast - reqWest) * scaleX));
+    int dy0 = static_cast<int>(std::floor((reqNorth - srcNorth) * scaleY));
+    int dy1 = static_cast<int>(std::ceil((reqNorth - srcSouth) * scaleY));
+    dx0 = std::clamp(dx0, 0, width);
+    dx1 = std::clamp(dx1, 0, width);
+    dy0 = std::clamp(dy0, 0, height);
+    dy1 = std::clamp(dy1, 0, height);
+    if (dx0 >= dx1 || dy0 >= dy1)
+    {
+        if (ok)
+            *ok = true;
+        return out;
+    }
+
+    const int dstW = dx1 - dx0;
+    const int dstH = dy1 - dy0;
+    GDALRasterBand *band = m_impl->dataset->GetRasterBand(1);
+
+    GDALRasterIOExtraArg args;
+    INIT_RASTERIO_EXTRA_ARG(args);
+    // Nearest-neighbour is deliberate: a 20° no-go boundary must never be
+    // averaged into a safe value.
+    args.eResampleAlg = GRIORA_NearestNeighbour;
+
+    std::vector<float> buffer(static_cast<std::size_t>(dstW) * dstH);
+    const CPLErr err =
+        band->RasterIO(GF_Read, sx0, sy0, sx1 - sx0, sy1 - sy0,
+                       buffer.data(), dstW, dstH, GDT_Float32, 0, 0, &args);
+    if (err != CE_None)
+        return QVector<float>();
+
+    for (int row = 0; row < dstH; ++row)
+    {
+        float *line = out.data() + static_cast<std::size_t>(dy0 + row) * width;
+        for (int col = 0; col < dstW; ++col)
+        {
+            const float value =
+                buffer[static_cast<std::size_t>(row) * dstW + col];
+            if (info.hasNoData &&
+                isNoData(static_cast<double>(value), info.noDataValue))
+                line[dx0 + col] = nan;
+            else
+                line[dx0 + col] = value;
+        }
+    }
+
+    if (ok)
+        *ok = true;
     return out;
 }

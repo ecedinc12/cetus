@@ -1,15 +1,22 @@
 #pragma once
 
+#include "analysis/TargetRanking.h"
+#include "routing/TraversePlanner.h"
+
+#include <QImage>
 #include <QPoint>
 #include <QPointF>
 #include <QRectF>
 #include <QString>
+#include <QStringList>
+#include <QVector>
 #include <QWidget>
 
 class DatasetRegistry;
 class RasterLayer;
 class QMouseEvent;
 class QPaintEvent;
+class QPainter;
 class QShowEvent;
 class QWheelEvent;
 
@@ -28,6 +35,29 @@ public:
     void setActiveLayer(const QString &layerId);
     QString activeLayerId() const;
 
+    // M2 multi-layer visibility. Layers draw bottom-to-top by Kind; the
+    // active layer remains the attribution/selection anchor.
+    void setLayerVisible(const QString &layerId, bool visible);
+    bool isLayerVisible(const QString &layerId) const;
+    // IDs in bottom-to-top draw order.
+    QStringList visibleLayerIds() const;
+    void showAllLayers();
+    void hideAllLayers();
+
+    // M3 overlays: hazard grid, planned route, crew start and science
+    // targets. These are display-only; routing/ranking lives elsewhere.
+    void setRoute(const Route &route);
+    void clearRoute();
+    void setTargets(const QVector<RankedTarget> &targets, const QString &primaryId);
+    void setCrewStart(const QPointF &eastNorth);
+    void setHazardOverlay(const QImage &image, const QRectF &extentMeters);
+    void clearHazardOverlay();
+    void fitToRoute();
+
+    const Route &route() const;
+    QVector<RankedTarget> targets() const;
+    QPointF crewStart() const;
+
     void fitToScene();
     void setMetersPerPixel(double metersPerPixel);
     double metersPerPixel() const;
@@ -45,6 +75,7 @@ public slots:
 signals:
     void cursorMoved(double eastingM, double northingM);
     void viewChanged();
+    void visibleLayersChanged();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -60,9 +91,13 @@ private:
     // Pixel -> projected metres using the current centre and mpp
     // (east = left + x*mpp, north = bottom - y*mpp).
     QPointF pixelToMeters(const QPointF &pixel) const;
+    // Projected metres -> widget pixels (inverse of pixelToMeters).
+    QPointF metersToPixel(const QPointF &meters) const;
+    void drawOverlays(QPainter &painter) const;
 
     const DatasetRegistry *m_registry = nullptr;  // non-owning
     QString m_activeLayerId;
+    QStringList m_visibleLayerIds;
     QPointF m_center;    // projected metres
     double m_mpp = 1.0;  // metres per pixel
     bool m_panning = false;
@@ -70,4 +105,12 @@ private:
     // First show refits the active layer once the widget has its real size;
     // setRegistry() runs in MainWindow's constructor, before layout.
     bool m_didInitialFit = false;
+
+    Route m_route;
+    QVector<RankedTarget> m_targets;
+    QString m_primaryTargetId;
+    QPointF m_crewStart;
+    bool m_hasCrewStart = false;
+    QImage m_hazardOverlay;
+    QRectF m_hazardExtent;
 };

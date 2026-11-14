@@ -47,6 +47,11 @@ QString assetDir();
 // (callers must fail loudly).
 QString layerPath(const QString &fileName);
 
+// Full path to the M3 scenario JSON: <assetDir>/scenario/m3_scenario.json.
+// Returns an empty string when the asset directory is unknown (callers must
+// fail loudly).
+QString scenarioPath();
+
 // --- Prepared layer descriptors (one source for registry and tests) -----
 // Display order used by the registry: hillshade, dem, slope, optical.
 std::vector<RasterLayer::Metadata> preparedLayerMetadata();

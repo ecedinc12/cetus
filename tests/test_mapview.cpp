@@ -2,8 +2,10 @@
 // pan direction and cursor-anchored wheel zoom. Runs offscreen
 // (QT_QPA_PLATFORM=offscreen set by CTest).
 
+#include "analysis/TargetRanking.h"
 #include "data/DatasetRegistry.h"
 #include "data/RasterLayer.h"
+#include "routing/TraversePlanner.h"
 #include "ui/MapView.h"
 
 #include <QApplication>
@@ -28,6 +30,13 @@ private slots:
     void zoomChangesScale();
     void panMovesCentre();
     void wheelZoomKeepsCursorPoint();
+    void layerTogglesAffectRendering();
+    void soloActiveHidesOthers();
+    void hideAllLayersLeavesEmptyView();
+    void unknownLayerIdIsIgnored();
+    void drawsRouteAndTargets();
+    void drawsHazardOverlay();
+    void fitToRouteShowsContext();
 
 private:
     static QString orthoPath();
@@ -224,6 +233,225 @@ void TestMapView::wheelZoomKeepsCursorPoint()
     QVERIFY(view.metersPerPixel() < 4.0);  // wheel up zooms in
     QVERIFY(qAbs(after.x() - before.x()) < 1e-6);
     QVERIFY(qAbs(after.y() - before.y()) < 1e-6);
+}
+
+void TestMapView::layerTogglesAffectRendering()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    DatasetRegistry reg;
+    QString err;
+    QVERIFY2(reg.loadPrepared(&err), qPrintable(err));
+
+    MapView view;
+    view.setRegistry(&reg);
+    view.resize(480, 360);
+    view.fitToScene();
+
+    const auto render = [&view]() {
+        QImage img(view.size(), QImage::Format_ARGB32_Premultiplied);
+        img.fill(QColor(0, 0, 0));
+        view.render(&img);
+        return img;
+    };
+
+    const QImage imageA = render();
+    view.setLayerVisible(QStringLiteral("hirise_slope"), true);
+
+    const QStringList ids = view.visibleLayerIds();
+    QVERIFY(ids.contains(QStringLiteral("hirise_optical")));
+    QVERIFY(ids.contains(QStringLiteral("hirise_slope")));
+    QVERIFY(ids.indexOf(QStringLiteral("hirise_optical"))
+            < ids.indexOf(QStringLiteral("hirise_slope")));
+
+    const QImage imageB = render();
+    QVERIFY(imageA != imageB);
+}
+
+void TestMapView::soloActiveHidesOthers()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    DatasetRegistry reg;
+    QString err;
+    QVERIFY2(reg.loadPrepared(&err), qPrintable(err));
+
+    MapView view;
+    view.setRegistry(&reg);
+    view.resize(480, 360);
+    view.setActiveLayer(QStringLiteral("hirise_slope"));
+
+    QCOMPARE(view.activeLayerId(), QStringLiteral("hirise_slope"));
+    QCOMPARE(view.visibleLayerIds(), QStringList{QStringLiteral("hirise_slope")});
+    QVERIFY(view.isLayerVisible(QStringLiteral("hirise_slope")));
+    QVERIFY(!view.isLayerVisible(QStringLiteral("hirise_optical")));
+}
+
+void TestMapView::hideAllLayersLeavesEmptyView()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    DatasetRegistry reg;
+    QString err;
+    QVERIFY2(reg.loadPrepared(&err), qPrintable(err));
+
+    MapView view;
+    view.setRegistry(&reg);
+    view.resize(480, 360);
+    view.fitToScene();
+
+    view.hideAllLayers();
+    QVERIFY(view.visibleLayerIds().isEmpty());
+
+    QImage img(view.size(), QImage::Format_ARGB32_Premultiplied);
+    img.fill(QColor(0, 0, 0));
+    view.render(&img);
+    QVERIFY(!img.isNull());
+
+    view.setLayerVisible(QStringLiteral("hirise_slope"), true);
+    QCOMPARE(view.visibleLayerIds(), QStringList{QStringLiteral("hirise_slope")});
+}
+
+void TestMapView::unknownLayerIdIsIgnored()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    DatasetRegistry reg;
+    QString err;
+    QVERIFY2(reg.loadPrepared(&err), qPrintable(err));
+
+    MapView view;
+    view.setRegistry(&reg);
+    view.resize(480, 360);
+    view.fitToScene();
+
+    const QStringList before = view.visibleLayerIds();
+    view.setLayerVisible(QStringLiteral("no_such_layer"), true);
+    QCOMPARE(view.visibleLayerIds(), before);
+    QVERIFY(!view.isLayerVisible(QStringLiteral("no_such_layer")));
+
+    QImage img(view.size(), QImage::Format_ARGB32_Premultiplied);
+    img.fill(QColor(0, 0, 0));
+    view.render(&img);
+    QVERIFY(!img.isNull());
+}
+
+void TestMapView::drawsRouteAndTargets()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    DatasetRegistry reg;
+    QString err;
+    QVERIFY2(reg.loadPrepared(&err), qPrintable(err));
+
+    MapView view;
+    view.setRegistry(&reg);
+    view.resize(640, 480);
+    view.fitToScene();
+
+    const QRectF extent = view.visibleExtentMeters();
+    const QPointF start = extent.center();
+    const QPointF end = start + QPointF(100.0, 0.0);
+
+    Route route;
+    route.points = {start, end};
+    route.distanceM = 100.0;
+    route.timeMin = 2.0;
+    route.maxSlopeDeg = 4.0;
+    route.valid = true;
+
+    RankedTarget ranked;
+    ranked.target.id = QStringLiteral("T1");
+    ranked.target.name = QStringLiteral("Test Vein");
+    ranked.target.eastingM = end.x();
+    ranked.target.northingM = end.y();
+    ranked.reachable = true;
+    ranked.travelMinutes = 2.0;
+
+    const auto render = [&view]() {
+        QImage img(view.size(), QImage::Format_ARGB32_Premultiplied);
+        img.fill(QColor(0, 0, 0));
+        view.render(&img);
+        return img;
+    };
+
+    const QImage before = render();
+    view.setRoute(route);
+    view.setTargets({ranked}, QStringLiteral("T1"));
+    view.setCrewStart(start);
+    const QImage after = render();
+
+    QVERIFY(before != after);
+    QCOMPARE(view.route().distanceM, 100.0);
+    QCOMPARE(view.targets().size(), 1);
+    QCOMPARE(view.crewStart(), start);
+}
+
+void TestMapView::drawsHazardOverlay()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    DatasetRegistry reg;
+    QString err;
+    QVERIFY2(reg.loadPrepared(&err), qPrintable(err));
+
+    MapView view;
+    view.setRegistry(&reg);
+    view.resize(640, 480);
+    view.fitToScene();
+
+    const QRectF extent = view.visibleExtentMeters();
+    const QRectF overlayExtent(
+        extent.center().x() - extent.width() / 4.0,
+        extent.center().y() - extent.height() / 4.0,
+        extent.width() / 2.0, extent.height() / 2.0);
+
+    QImage hazard(8, 8, QImage::Format_ARGB32_Premultiplied);
+    hazard.fill(QColor(255, 0, 0, 255));
+
+    const auto render = [&view]() {
+        QImage img(view.size(), QImage::Format_ARGB32_Premultiplied);
+        img.fill(QColor(0, 0, 0));
+        view.render(&img);
+        return img;
+    };
+
+    const QImage before = render();
+    view.setHazardOverlay(hazard, overlayExtent);
+    const QImage after = render();
+
+    QVERIFY(before != after);
+}
+
+void TestMapView::fitToRouteShowsContext()
+{
+    MapView view;
+    view.resize(640, 480);
+    view.setMetersPerPixel(0.5);
+
+    const QPointF start(1000.0, 2000.0);
+    const QPointF end(1100.0, 2000.0);
+    Route route;
+    route.points = {start, end};
+    route.distanceM = 100.0;
+    route.timeMin = 2.0;
+    route.valid = true;
+    view.setRoute(route);
+
+    view.fitToRoute();
+
+    const QRectF visible = view.visibleExtentMeters();
+    QVERIFY2(visible.width() >= 400.0,
+             qPrintable(QStringLiteral("visible width %1 m")
+                            .arg(visible.width())));
+    QVERIFY(visible.contains(start));
+    QVERIFY(visible.contains(end));
 }
 
 QTEST_MAIN(TestMapView)

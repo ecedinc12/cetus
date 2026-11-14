@@ -16,6 +16,8 @@ find_package(GDAL REQUIRED)
 add_library(cetus_core STATIC
     src/app/MissionState.h
     src/app/MissionState.cpp
+    src/app/MissionScenario.h
+    src/app/MissionScenario.cpp
     src/data/DatasetRegistry.h
     src/data/DatasetRegistry.cpp
     src/data/RasterLayer.h
@@ -36,6 +38,8 @@ add_library(cetus_core STATIC
     src/ui/MapView.cpp
     src/ui/SidePanel.h
     src/ui/SidePanel.cpp
+    src/ui/LayerLegend.h
+    src/ui/LayerLegend.cpp
 )
 target_include_directories(cetus_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # Prepared assets ship next to the sources; tests/app can override at

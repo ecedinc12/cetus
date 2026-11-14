@@ -31,6 +31,16 @@ QString layerPath(const QString &fileName)
     return dir + QStringLiteral("/layers/") + fileName;
 }
 
+QString scenarioPath()
+{
+    const QString dir = assetDir();
+    if (dir.isEmpty())
+        return QString();
+    if (dir.endsWith(QLatin1Char('/')))
+        return dir + QStringLiteral("scenario/m3_scenario.json");
+    return dir + QStringLiteral("/scenario/m3_scenario.json");
+}
+
 std::vector<RasterLayer::Metadata> preparedLayerMetadata()
 {
     // Display order: hillshade, dem, slope, optical (top layer first).

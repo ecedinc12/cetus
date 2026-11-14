@@ -29,10 +29,14 @@ re-prep.
   PIA19921 (“Veiny Garden City site/surroundings”) document the target:
   <https://photojournal.jpl.nasa.gov/catalog/PIA19161>,
   <https://photojournal.jpl.nasa.gov/catalog/PIA19921>.
-- **Do not guess coordinates for individual vein targets.** The T1/T2/T3 pins
-  will be digitised from the 1 m HiRISE ortho in M3 and cross-checked against
-  the NASA browse images. Until then, only the site footprint and the published
-  observation centre are used.
+- **Target pins come from NASA Mars Trek, not from guessed coordinates.**
+  M3 uses three named Curiosity waypoints from the Mars Trek
+  `curiosity_waypoints` service (Pahrump Hills, Marias Pass, Vera Rubin Ridge)
+  and an EVA start point from a vertex of the Mars Trek `curiosity_path`
+  service. The waypoint/path vertices are published in Mars body
+  longitude/latitude; the app stores them in the site Mars equirectangular
+  CRS after a documented transform (section 2.4). No coordinate is invented or
+  digitised by eye.
 - Site bounding box (exactly the HiRISE DTM/ortho footprint, from the product
   labels): **137.33518211°E to 137.44270087°E, 4.79220274°S to 4.58331793°S**.
   That is 6.37 km east–west by 12.38 km north–south at 1.01 m/px. The PLAN.md
@@ -61,9 +65,12 @@ re-prep.
 | PDS base | <https://hirise-pds.lpl.arizona.edu/PDS/DTM/ESP/ORB_040700_040799/ESP_040770_1755_ESP_039280_1755/> |
 
 The orthoimage is orthorectified against the stereo DTM below, so optical and
-topography share a grid and a CRS. “North is up” per the HiRISE product page.
-The JP2 has black triangular no-data wedges at the swath edges; they are *not*
-terrain and must never be treated as traversable data.
+topography share a grid and a CRS. The equirectangular map grid is north-up;
+the scene is resampled into that grid. The observation footprint itself is a
+rotated rectangle inside the grid, so the JP2 has black triangular no-data
+wedges at the swath edges. They are *not* terrain and must never be treated as
+traversable data. The tilted strip in the app is that real footprint, not a
+rendering rotation; the north arrow refers to the map grid.
 
 ### 2.2 Topographic — HiRISE stereo DTM
 
@@ -91,7 +98,7 @@ memory and route-grid costs sane. **Missing DTM cells mean “unknown”, never
 
 | Layer | File | Units | Formula / command |
 |---|---|---|---|
-| Slope | `assets/layers/gale_hirise_slope_4m.tif` | degrees | `gdaldem slope -p -alg Horn` on the 4 m DEM |
+| Slope | `assets/layers/gale_hirise_slope_4m.tif` | degrees | `gdaldem slope -alg Horn` on the 4 m DEM (**no `-p`**) |
 | Hillshade | `assets/layers/gale_hirise_hillshade_4m.tif` | unitless 0–255 | `gdaldem hillshade -z 2 -az 315 -alt 45` on the 4 m DEM |
 
 The hillshade illumination (azimuth 315°, altitude 45°, z-factor 2) is a
@@ -100,6 +107,105 @@ solar incidence angle of 33° for the source image; if a physically consistent
 shade is needed later, use the acquisition geometry. Slope is computed at 4 m
 post spacing, so it smooths metre-scale boulders; boulder-scale hazard will
 need the 1 m DTM or optical texture in M3.
+
+
+### 2.4 Science-target waypoints — NASA Mars Trek
+
+M3's crew start and three science targets are **real NASA Mars Trek features**,
+not synthetic fixtures:
+
+| App ID | Mars Trek feature | Mars Trek FID | Longitude (°E) | Latitude (°N) |
+|---|---|---|---|---|
+| `START` | `curiosity_path` vertex 6300 | — | 137.3772897332912 | −4.660079490499737 |
+| `T1` | Pahrump Hills | 5 | 137.37724353716703 | −4.66241193815176 |
+| `T2` | Marias Pass | 6 | 137.37140256639952 | −4.667938835464834 |
+| `T3` | Vera Rubin Ridge | 11 | 137.36832 | −4.72053 |
+
+Services (ArcGIS REST, queried 2025-11-14):
+
+```bash
+# All waypoints, geometry in Mars body lon/lat (wkid 104905)
+curl -sS 'https://trek.nasa.gov/mars/trekarcgis/rest/services/curiosity_waypoints/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=104905&f=json'
+
+# Full Curiosity traverse polyline; vertex 6300 is the EVA start
+curl -sS 'https://trek.nasa.gov/mars/trekarcgis/rest/services/curiosity_path/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=104905&f=json'
+```
+
+Feature text used for the target "why" lines (fetched from Mars Trek, not
+paraphrased from other sites):
+
+- <https://trek.nasa.gov/mars/jpl/assets/features/curiosity/pahrump_hills.html>
+- <https://trek.nasa.gov/mars/jpl/assets/features/curiosity/marias_pass.html>
+- <https://trek.nasa.gov/mars/jpl/assets/features/curiosity/vera_rubin_ridge.html>
+
+The app file is `assets/scenario/m3_scenario.json`. It stores both the
+published lon/lat and the site-CRS easting/northing. The transform used was:
+
+```bash
+# Example: Pahrump Hills. Same string as the raster CRS.
+echo '137.37724353716703 -4.66241193815176' |   gdaltransform -s_srs '+proj=longlat +R=3396190 +no_defs'                 -t_srs '+proj=eqc +lat_ts=0 +lon_0=137.39 +R=3396190 +units=m +no_defs'
+# -> -756.135485790287 -276363.057354002
+```
+
+**Not from NASA:** the `science_value` (0–1) and `minutes_on_target` fields in
+the scenario file are design choices used to rank targets (`[tunable]`). They
+are labelled as scenario values in the file and are not presented as measured
+science. The target pin *locations* are NASA Mars Trek data.
+
+Sampled 4 m slope at the pins (degrees, corrected product): START 5.58°,
+Pahrump Hills 2.90°, Marias Pass 13.52°, Vera Rubin Ridge 7.49°. All three
+targets are below the 20° no-go threshold at this resolution. The planner still
+prints a standoff warning if a target cell is no-go or unknown at route time.
+
+**Slope-unit correction (2025-11-14):** the first M1 slope build used
+`gdaldem slope -p`, but in GDAL `-p` means **percent slope**, not degrees. Its
+values reached 280.85 (% slope = 70.4°), while the metadata and UI said
+degrees. That would have made the 20° no-go rule fire at ~11.3° and
+over-block safe terrain. The layer was rebuilt without `-p`; new range is
+0.003–70.401°, metadata `UNITS=degrees`. No raster values were clamped or
+invented; this is a corrected derivation from the same DEM.
+
+### 2.5 Traverse planning (M3)
+
+The route is a hazard-weighted A* search over a 10 m grid built from the
+corrected slope layer (`HazardMap`), not a straight line or an unweighted
+shortest path.
+
+- Grid: **638 × 1238 cells** at `10 m` (`[tunable]`). Extent and CRS come from
+  the slope layer; no reprojection is applied.
+- Hard constraint: slope **> 20.0°** is no-go (`[tunable]`, PLAN.md §5.3).
+  No-data cells are also no-go; missing data is never treated as safe.
+- Edge cost: `0.5 × (cost(a) + cost(b)) × step_metres`, where
+  `cost = 1 + 2 × (slope / 20)²` for a traversable cell. Diagonal moves are
+  rejected when either orthogonal neighbour is no-go or unknown.
+- Crew speed: `1.2 km/h` flat (`[tunable]`, PLAN.md §5.4). The current M3
+  route time does **not** yet include walkback or consumables; that is M4.
+- Start/goal snapping: a pin inside a no-go/unknown cell is moved to the
+  nearest safe cell within 200 m; the panel shows a standoff warning instead
+  of pretending the pin is reachable. All four M3 pins are safely inside
+  traversable cells, so the current standoff is 0 m.
+- Ranking: `science_value / (travel_minutes + minutes_on_target)`, then
+  reachable targets by decreasing value rate (travel time, then id as
+  tie-breaks). Unreachable targets are listed after reachable ones.
+
+Measured on the shipped assets (2025-11-14, offscreen):
+
+| Item | Value |
+|---|---|
+| Hazard grid | 638 × 1238 cells, 10 m |
+| No-go cells (> 20°) | 36,830 (4.7%) |
+| Unknown cells (no slope data) | 205,428 (26.0%) |
+| Maximum sampled slope | 67.34° |
+| Selected target | `T1` Pahrump Hills |
+| Route to `T1` | 138.3 m, 7.5 min, max slope 7.79°, standoff 0 m |
+| `T2` Marias Pass | reachable, 36.0 min travel, value rate 0.0190/min |
+| `T3` Vera Rubin Ridge | reachable, 211.6 min travel, value rate 0.0037/min |
+
+The 26.0% unknown figure is dominated by the rotated HiRISE footprint's black
+no-data wedges, plus DTM holes. Those areas are plotted as no-go and counted in
+the panel warning; they are not evidence of safe ground. The high `T3` travel
+time is the real cost of the long ridge approach under the 20° rule and the
+1.2 km/h suit assumption, not a synthetic penalty.
 
 ---
 
@@ -135,7 +241,7 @@ gdal_translate -tr 4 4 -r bilinear -of COG -co COMPRESS=DEFLATE -co PREDICTOR=3 
   data/raw/DTEEC_040770_1755_039280_1755_U01.IMG assets/layers/gale_hirise_dem_4m.tif
 
 # Slope (degrees) and hillshade
-gdaldem slope -p -alg Horn assets/layers/gale_hirise_dem_4m.tif /tmp/slope4m.tif
+gdaldem slope -alg Horn assets/layers/gale_hirise_dem_4m.tif /tmp/slope4m.tif
 gdaldem hillshade -z 2 -az 315 -alt 45 assets/layers/gale_hirise_dem_4m.tif /tmp/hs4m.tif
 gdal_translate -of COG -co COMPRESS=DEFLATE -co PREDICTOR=3 -co BIGTIFF=IF_SAFER \
   -mo PRODUCT_ID=DERIVED_SLOPE -mo SOURCE=derived_from_DTEEC_040770_1755_039280_1755_U01 \
@@ -185,5 +291,14 @@ Mercator.
 | `hirise_slope` | `assets/layers/gale_hirise_slope_4m.tif` | derived topographic | 4 m/px | degrees |
 | `hirise_hillshade` | `assets/layers/gale_hirise_hillshade_4m.tif` | derived topographic | 4 m/px | unitless |
 
-The app displays source, resolution and units for every layer (M2 formalises
-the legend; M1 shows the active layer's provenance in the status bar).
+M2 provides the glove-friendly layer legend: every row shows the layer name,
+source, resolution and units, and toggles that raster on the map. Four layers
+are available (optical, topography, slope, hillshade); they are two measured
+data kinds (optical + topographic) plus two derived topographic layers, not
+four independent NASA datasets. Thermal, spectral and other kinds arrive in
+later milestones.
+
+M3 adds a hazard grid, a route overlay and a field panel on top of these
+layers. It does **not** add a new measured NASA data kind; the brief's
+"three kinds" requirement still needs thermal, spectral or another measured
+layer before the final demo. That is tracked as M4 pre-work.
