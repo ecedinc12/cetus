@@ -19,6 +19,7 @@ struct ScienceTarget
     double northingM = 0.0;
     double scienceValue = 0.0;    // 0..1, scenario design choice
     double minutesOnTarget = 0.0;
+    QString phenomenon;           // observed feature, e.g. "boxwork vein"
     QPointF position() const { return QPointF(eastingM, northingM); }
 };
 

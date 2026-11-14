@@ -12,7 +12,9 @@
 #include <QFile>
 #include <QImage>
 #include <QLabel>
+#include <QPushButton>
 #include <QStatusBar>
+#include <QTemporaryDir>
 #include <QToolButton>
 #include <QtTest/QTest>
 
@@ -31,6 +33,7 @@ private slots:
     void planChainsTargetsWithinBudget();
     void missingAssetsFailLoudly();
     void missionFailureIsLoud();
+    void collectsSampleIntoSessionLog();
 
 private:
     static QString orthoPath();
@@ -443,6 +446,101 @@ void TestMainWindow::missionFailureIsLoud()
         qputenv("CETUS_ASSET_DIR", previous);
     else
         qunsetenv("CETUS_ASSET_DIR");
+}
+
+
+void TestMainWindow::collectsSampleIntoSessionLog()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString logPath = dir.filePath(QStringLiteral("samples.jsonl"));
+
+    const bool hadLog = qEnvironmentVariableIsSet("CETUS_SAMPLE_LOG");
+    const QByteArray previousLog = qgetenv("CETUS_SAMPLE_LOG");
+    qputenv("CETUS_SAMPLE_LOG", logPath.toUtf8());
+
+    const auto logLines = [&logPath]() {
+        QFile file(logPath);
+        if (!file.open(QIODevice::ReadOnly))
+            return 0;
+        int count = 0;
+        while (!file.atEnd()) {
+            if (!file.readLine().trimmed().isEmpty())
+                ++count;
+        }
+        return count;
+    };
+
+    {
+        MainWindow w;
+        QVERIFY(w.scenarioLoaded());
+        QCOMPARE(w.sampleCount(), 0);
+
+        auto *button = w.findChild<QPushButton *>(
+            QStringLiteral("collectSampleButton"));
+        QVERIFY(button);
+        QVERIFY(button->isEnabled());
+        QVERIFY2(button->text().contains(QStringLiteral("T1")),
+                 qPrintable(button->text()));
+
+        // The always-visible toolbar twin must be usable too: at the demo
+        // window size the panel button can sit below the fold.
+        auto *toolbarButton = w.findChild<QToolButton *>(
+            QStringLiteral("collectSampleToolbarButton"));
+        QVERIFY(toolbarButton);
+        QVERIFY(toolbarButton->isEnabled());
+
+        QTest::mouseClick(toolbarButton, Qt::LeftButton);
+        QCOMPARE(w.sampleCount(), 1);
+        QVERIFY(w.sidePanel());
+        QCOMPARE(w.sidePanel()->latestSampleId(),
+                 QStringLiteral("SAMPLE-3-1"));
+
+        auto *latest = w.sidePanel()->findChild<QLabel *>(
+            QStringLiteral("latestSampleLabel"));
+        QVERIFY(latest);
+        QVERIFY2(latest->text().contains(QStringLiteral("E ")),
+                 qPrintable(latest->text()));
+        QVERIFY2(latest->text().contains(QStringLiteral("N ")),
+                 qPrintable(latest->text()));
+        QVERIFY2(latest->text().contains(QStringLiteral("up (")),
+                 qPrintable(latest->text()));
+        QVERIFY2(latest->text().contains(QStringLiteral("slope ")),
+                 qPrintable(latest->text()));
+        QVERIFY2(latest->text().contains(QStringLiteral("SAMPLE-3-1")),
+                 qPrintable(latest->text()));
+
+        QVERIFY2(w.statusBar()->currentMessage().contains(
+                     QStringLiteral("SAMPLE-3-1 LOGGED")),
+                 qPrintable(w.statusBar()->currentMessage()));
+        QCOMPARE(logLines(), 1);
+    }
+
+    {
+        MainWindow w;
+        QVERIFY(w.scenarioLoaded());
+        QCOMPARE(w.sampleCount(), 1);
+
+        auto *button = w.findChild<QPushButton *>(
+            QStringLiteral("collectSampleButton"));
+        QVERIFY(button);
+        QVERIFY(button->isEnabled());
+
+        QTest::mouseClick(button, Qt::LeftButton);
+        QCOMPARE(w.sampleCount(), 2);
+        QVERIFY(w.sidePanel());
+        QCOMPARE(w.sidePanel()->latestSampleId(),
+                 QStringLiteral("SAMPLE-3-2"));
+        QCOMPARE(logLines(), 2);
+    }
+
+    if (hadLog)
+        qputenv("CETUS_SAMPLE_LOG", previousLog);
+    else
+        qunsetenv("CETUS_SAMPLE_LOG");
 }
 
 QTEST_MAIN(TestMainWindow)

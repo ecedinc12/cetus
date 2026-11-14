@@ -20,6 +20,10 @@ add_library(cetus_core STATIC
     src/app/MissionScenario.cpp
     src/app/ScenarioSteps.h
     src/app/ScenarioSteps.cpp
+    src/app/SampleLog.h
+    src/app/SampleLog.cpp
+    src/app/SampleCollector.h
+    src/app/SampleCollector.cpp
     src/data/DatasetRegistry.h
     src/data/DatasetRegistry.cpp
     src/data/RasterLayer.h
@@ -32,6 +36,8 @@ add_library(cetus_core STATIC
     src/analysis/HazardMap.cpp
     src/analysis/TargetRanking.h
     src/analysis/TargetRanking.cpp
+    src/analysis/TerrainOrientation.h
+    src/analysis/TerrainOrientation.cpp
     src/routing/TraversePlanner.h
     src/routing/TraversePlanner.cpp
     src/routing/Walkback.h

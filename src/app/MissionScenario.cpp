@@ -195,6 +195,13 @@ bool MissionScenario::loadFromFile(const QString &path, MissionScenario *out,
                             .arg(context)
                             .arg(target.minutesOnTarget, 0, 'g', 12));
 
+        // Optional here: the sample collector refuses to write a field note
+        // without it, but the scenario may still load without one.
+        const QJsonValue phenomenonValue =
+            targetObject.value(QStringLiteral("phenomenon"));
+        if (phenomenonValue.isString())
+            target.phenomenon = phenomenonValue.toString();
+
         scenario.targets.push_back(target);
     }
 

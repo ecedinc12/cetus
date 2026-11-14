@@ -3,6 +3,7 @@
 #include <QFrame>
 #include <QLabel>
 #include <QPalette>
+#include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QStyle>
@@ -133,6 +134,42 @@ SidePanel::SidePanel(QWidget *parent)
         QStringLiteral("font-size: 14px; color: #d8cec2;"));
     m_contentLayout->addWidget(m_primaryWhyLabel);
 
+    m_collectSampleButton = new QPushButton(tr("COLLECT SAMPLE"), m_content);
+    m_collectSampleButton->setObjectName(
+        QStringLiteral("collectSampleButton"));
+    m_collectSampleButton->setMinimumHeight(44);
+    m_collectSampleButton->setEnabled(false);
+    m_collectSampleButton->setToolTip(
+        tr("Appends a field note to the session log; no physical sample is "
+           "claimed."));
+    m_collectSampleButton->setStyleSheet(
+        QStringLiteral("QPushButton { font-size: 16px; font-weight: bold;"
+                       " color: #1c1612; background: #ffbe3c;"
+                       " border: 2px solid #ffd97a; border-radius: 6px;"
+                       " padding: 8px; }"
+                       "QPushButton:disabled { color: #6b5b45;"
+                       " background: #4a3d33; border: 2px solid #6b5b45; }"));
+    m_contentLayout->addWidget(m_collectSampleButton);
+    connect(m_collectSampleButton, &QPushButton::clicked, this,
+            &SidePanel::collectSampleRequested);
+
+    m_latestSampleLabel = new QLabel(tr("No samples logged."), m_content);
+    m_latestSampleLabel->setObjectName(QStringLiteral("latestSampleLabel"));
+    m_latestSampleLabel->setWordWrap(true);
+    m_latestSampleLabel->setStyleSheet(
+        QStringLiteral("font-size: 13px; color: #7fe6ff;"));
+    m_contentLayout->addWidget(m_latestSampleLabel);
+
+    m_sampleErrorLabel = new QLabel(m_content);
+    m_sampleErrorLabel->setObjectName(QStringLiteral("sampleErrorLabel"));
+    m_sampleErrorLabel->setWordWrap(true);
+    m_sampleErrorLabel->setStyleSheet(
+        QStringLiteral("font-size: 14px; font-weight: bold; color: #ffd9d0;"
+                       " background: #781814; border: 1px solid #b3302a;"
+                       " border-radius: 4px; padding: 8px;"));
+    m_sampleErrorLabel->hide();
+    m_contentLayout->addWidget(m_sampleErrorLabel);
+
     addSectionHeader(m_contentLayout, m_content, tr("CONSUMABLES"));
     m_consumablesLabel = new QLabel(tr("Not linked yet (M4)"), m_content);
     m_consumablesLabel->setObjectName(QStringLiteral("consumablesLabel"));
@@ -213,6 +250,8 @@ void SidePanel::updateWrappedHeights()
     setLabelMinimum(m_scienceGoalLabel, 0);
     setLabelMinimum(m_primaryTargetLabel, 0);
     setLabelMinimum(m_primaryWhyLabel, 0);
+    setLabelMinimum(m_latestSampleLabel, 0);
+    setLabelMinimum(m_sampleErrorLabel, 0);
     for (QLabel *row : m_targetRows)
         setLabelMinimum(row, kRowBaseHeight);
     setLabelMinimum(m_routeSummaryLabel, 0);
@@ -279,6 +318,73 @@ void SidePanel::setWalkbackText(const QString &text)
 void SidePanel::setRouteSummaryText(const QString &text)
 {
     applyWrappedText(m_routeSummaryLabel, text);
+}
+
+void SidePanel::setCollectTarget(const QString &targetId)
+{
+    m_collectTargetId = targetId;
+    const bool enabled = !targetId.isEmpty();
+    if (!m_collectSampleButton)
+        return;
+    m_collectSampleButton->setEnabled(enabled);
+    m_collectSampleButton->setText(
+        enabled ? tr("COLLECT SAMPLE AT %1").arg(targetId)
+                : tr("COLLECT SAMPLE"));
+}
+
+void SidePanel::setLatestSample(const QString &sampleId,
+                                const QString &summary, int total)
+{
+    m_latestSampleId = sampleId;
+    if (!m_latestSampleLabel)
+        return;
+    if (sampleId.isEmpty()) {
+        applyWrappedText(m_latestSampleLabel, tr("No samples logged."));
+        return;
+    }
+
+    QString text = sampleId;
+    if (!summary.isEmpty())
+        text += QStringLiteral(" \u00b7 ") + summary;
+    text += QStringLiteral(" \u00b7 %1 logged").arg(total);
+    applyWrappedText(m_latestSampleLabel, text);
+}
+
+void SidePanel::revealLatestSample()
+{
+    if (!m_scroll || !m_latestSampleLabel)
+        return;
+    m_scroll->ensureWidgetVisible(m_latestSampleLabel, 0, 24);
+}
+
+void SidePanel::setSampleLogError(const QString &error)
+{
+    m_sampleErrorText = error;
+    if (!m_sampleErrorLabel)
+        return;
+    if (error.isEmpty()) {
+        m_sampleErrorLabel->clear();
+        m_sampleErrorLabel->hide();
+        return;
+    }
+    applyWrappedText(m_sampleErrorLabel,
+                     QStringLiteral("SAMPLE LOG: %1").arg(error));
+    m_sampleErrorLabel->show();
+}
+
+QString SidePanel::collectTargetId() const
+{
+    return m_collectTargetId;
+}
+
+QString SidePanel::latestSampleId() const
+{
+    return m_latestSampleId;
+}
+
+QString SidePanel::sampleErrorText() const
+{
+    return m_sampleErrorText;
 }
 
 void SidePanel::setWarnings(const QStringList &warnings)
