@@ -58,6 +58,14 @@ public:
     void clearHazardOverlay();
     void fitToRoute();
 
+    // Display toggles for the analytic overlays (default: visible). Hiding
+    // the hazard grid or the target markers does not change the plan; the
+    // route legs and the crew start stay drawn.
+    void setHazardVisible(bool visible);
+    bool isHazardVisible() const;
+    void setTargetsVisible(bool visible);
+    bool areTargetsVisible() const;
+
     const Route &route() const;
     const QVector<Route> &planRoutes() const;
     QVector<RankedTarget> targets() const;
@@ -119,4 +127,6 @@ private:
     bool m_hasCrewStart = false;
     QImage m_hazardOverlay;
     QRectF m_hazardExtent;
+    bool m_hazardVisible = true;
+    bool m_targetsVisible = true;
 };

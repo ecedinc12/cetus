@@ -83,6 +83,30 @@ MainWindow::MainWindow(QWidget *parent)
     zoomOutButton->setText(QStringLiteral("-"));
     toolBar->addWidget(zoomOutButton);
 
+    // Overlay toggles: the hazard grid and the target markers are drawn by
+    // default (hazard-first, AGENTS.md §7) but can be hidden to see the bare
+    // terrain. Hiding them does not change the plan.
+    toolBar->addSeparator();
+    auto *hazardButton = new QToolButton(this);
+    hazardButton->setObjectName(QStringLiteral("hazardButton"));
+    hazardButton->setText(tr("Hazard"));
+    hazardButton->setCheckable(true);
+    hazardButton->setChecked(true);
+    hazardButton->setToolTip(
+        tr("Hazard overlay: amber = slope 10-20 deg, red = no-go (slope > "
+           "20 deg or unknown data)"));
+    toolBar->addWidget(hazardButton);
+
+    auto *targetsButton = new QToolButton(this);
+    targetsButton->setObjectName(QStringLiteral("targetsButton"));
+    targetsButton->setText(tr("Targets"));
+    targetsButton->setCheckable(true);
+    targetsButton->setChecked(true);
+    targetsButton->setToolTip(
+        tr("Science target markers: large orange = recommended, small amber "
+           "= other reachable target, red ring = no route or walkback fail"));
+    toolBar->addWidget(targetsButton);
+
     // One header control for the scripted demo scenario (PLAN.md §6).
     toolBar->addSeparator();
     m_advanceButton = new QToolButton(this);
@@ -149,6 +173,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(zoomInButton, &QToolButton::clicked, m_mapView, &MapView::zoomIn);
     connect(zoomOutButton, &QToolButton::clicked, m_mapView,
             &MapView::zoomOut);
+    connect(hazardButton, &QToolButton::toggled, m_mapView,
+            &MapView::setHazardVisible);
+    connect(targetsButton, &QToolButton::toggled, m_mapView,
+            &MapView::setTargetsVisible);
     connect(m_advanceButton, &QToolButton::clicked, this,
             &MainWindow::advanceScenario);
     connect(m_collectToolbarButton, &QToolButton::clicked, this,

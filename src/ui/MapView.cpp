@@ -406,6 +406,32 @@ void MapView::clearHazardOverlay()
     update();
 }
 
+void MapView::setHazardVisible(bool visible)
+{
+    if (m_hazardVisible == visible)
+        return;
+    m_hazardVisible = visible;
+    update();
+}
+
+bool MapView::isHazardVisible() const
+{
+    return m_hazardVisible;
+}
+
+void MapView::setTargetsVisible(bool visible)
+{
+    if (m_targetsVisible == visible)
+        return;
+    m_targetsVisible = visible;
+    update();
+}
+
+bool MapView::areTargetsVisible() const
+{
+    return m_targetsVisible;
+}
+
 const Route &MapView::route() const
 {
     return m_route;
@@ -492,7 +518,8 @@ void MapView::drawOverlays(QPainter &painter) const
 
     // Hazard grid: metre extent -> pixels. readImage-style north-up image
     // (row 0 = north edge), drawn as-is and never flipped.
-    if (!m_hazardOverlay.isNull() && m_hazardExtent.isValid()
+    if (m_hazardVisible && !m_hazardOverlay.isNull()
+        && m_hazardExtent.isValid()
         && m_hazardExtent.width() > 0.0 && m_hazardExtent.height() > 0.0) {
         const QRectF target(
             (m_hazardExtent.left() - visible.left()) / m_mpp,
@@ -581,6 +608,8 @@ void MapView::drawOverlays(QPainter &painter) const
     // Science targets: amber = reachable, red ring = unreachable/no-go,
     // primary = larger orange marker with its id/name.
     for (const RankedTarget &ranked : m_targets) {
+        if (!m_targetsVisible)
+            break;
         const QPointF pixel = metersToPixel(ranked.target.position());
         const bool primary = !m_primaryTargetId.isEmpty()
                              && ranked.target.id == m_primaryTargetId;

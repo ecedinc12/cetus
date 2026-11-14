@@ -36,6 +36,7 @@ private slots:
     void scenarioChangeIsVisibleAndExplained();
     void routeSectionStaysAboveTheFold();
     void mapKeyFitsTheDock();
+    void mapOverlaysCanBeHidden();
     void missingAssetsFailLoudly();
     void missionFailureIsLoud();
     void collectsSampleIntoSessionLog();
@@ -585,6 +586,60 @@ void TestMainWindow::mapKeyFitsTheDock()
              qPrintable(QStringLiteral("key bottom %1, window height %2")
                             .arg(bottom)
                             .arg(w.height())));
+
+    w.close();
+}
+
+void TestMainWindow::mapOverlaysCanBeHidden()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    w.resize(960, 700);
+    w.show();
+    QTest::qWait(20);
+
+    auto *map = w.findChild<MapView *>();
+    QVERIFY(map);
+    auto *hazard = w.findChild<QToolButton *>(QStringLiteral("hazardButton"));
+    auto *targets =
+        w.findChild<QToolButton *>(QStringLiteral("targetsButton"));
+    QVERIFY(hazard);
+    QVERIFY(targets);
+
+    // Both overlays are on by default (hazard-first).
+    QVERIFY(hazard->isCheckable());
+    QVERIFY(hazard->isChecked());
+    QVERIFY(targets->isCheckable());
+    QVERIFY(targets->isChecked());
+    QVERIFY(map->isHazardVisible());
+    QVERIFY(map->areTargetsVisible());
+
+    // Hiding the hazard grid changes what the map paints and nothing else.
+    QImage hazardOn(map->size(), QImage::Format_ARGB32_Premultiplied);
+    hazardOn.fill(QColor(0, 0, 0));
+    map->render(&hazardOn);
+
+    hazard->click();
+    QVERIFY(!map->isHazardVisible());
+    QVERIFY(map->areTargetsVisible());
+    QImage hazardOff(map->size(), QImage::Format_ARGB32_Premultiplied);
+    hazardOff.fill(QColor(0, 0, 0));
+    map->render(&hazardOff);
+    QVERIFY(hazardOn != hazardOff);
+
+    hazard->click();
+    QVERIFY(map->isHazardVisible());
+
+    // Targets: toggling does not touch the plan or the route.
+    const QString primaryBefore = w.primaryTargetId();
+    targets->click();
+    QVERIFY(!map->areTargetsVisible());
+    QCOMPARE(w.primaryTargetId(), primaryBefore);
+    QVERIFY(w.route().valid);
+    targets->click();
+    QVERIFY(map->areTargetsVisible());
 
     w.close();
 }
