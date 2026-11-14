@@ -12,7 +12,9 @@
 #include <QFile>
 #include <QImage>
 #include <QLabel>
+#include <QLineF>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QToolButton>
@@ -31,6 +33,9 @@ private slots:
     void walkbackRejectsFarTarget();
     void advanceScenarioWalksS0ToS4AndWraps();
     void planChainsTargetsWithinBudget();
+    void scenarioChangeIsVisibleAndExplained();
+    void routeSectionStaysAboveTheFold();
+    void mapKeyFitsTheDock();
     void missingAssetsFailLoudly();
     void missionFailureIsLoud();
     void collectsSampleIntoSessionLog();
@@ -231,7 +236,7 @@ void TestMainWindow::panelExplainsTheRecommendation()
     for (const QString &warning : warnings) {
         if ((!w.route().warning.isEmpty() &&
              warning.contains(w.route().warning)) ||
-            warning.contains(QStringLiteral("unknown (no data)"))) {
+            warning.contains(QStringLiteral("has no data"))) {
             hasExpectedWarning = true;
             break;
         }
@@ -387,6 +392,10 @@ void TestMainWindow::planChainsTargetsWithinBudget()
     QVERIFY2(consumables->text().contains(QStringLiteral("T2")),
              qPrintable(consumables->text()));
 
+    auto *map = w.findChild<MapView *>();
+    QVERIFY(map);
+    QCOMPARE(map->planRoutes().size(), 2);
+
     // S2 (90 min): T2 no longer fits after T1 (needs > 90 min whatever the
     // leg is), so the plan is T1 alone.
     w.advanceScenario();
@@ -395,12 +404,189 @@ void TestMainWindow::planChainsTargetsWithinBudget()
     expected = {QStringLiteral("T1")};
     QCOMPARE(w.missionPlan().ids(), expected);
     QVERIFY(w.missionPlan().elapsedAfterMin <= 90.0);
+    QCOMPARE(map->planRoutes().size(), 1);
 
     // S4: science disabled, no plan.
     w.advanceScenario();
     w.advanceScenario();
     QCOMPARE(w.scenarioStepIndex(), 4);
     QVERIFY(w.missionPlan().steps.isEmpty());
+    QVERIFY(map->planRoutes().isEmpty());
+}
+
+void TestMainWindow::scenarioChangeIsVisibleAndExplained()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    QVERIFY(w.scenarioLoaded());
+    SidePanel *panel = w.sidePanel();
+    QVERIFY(panel);
+    auto *map = w.findChild<MapView *>();
+    QVERIFY(map);
+
+    const auto context = [panel]() {
+        return panel->scenarioContextText();
+    };
+    const auto targetPosition = [&w](const QString &id) {
+        QPointF position;
+        for (const RankedTarget &ranked : w.rankedTargets()) {
+            if (ranked.target.id == id)
+                position = ranked.target.position();
+        }
+        return position;
+    };
+
+    // S0: nominal, full T1 -> T2 plan.
+    QVERIFY(panel->findChild<QLabel *>(
+        QStringLiteral("scenarioContextLabel")));
+    QVERIFY2(context().contains(QStringLiteral("S0")), qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("NOMINAL")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("Full plan")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("T1")), qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("T2")), qPrintable(context()));
+    QCOMPARE(map->planRoutes().size(), 2);
+
+    // S1: dust rising, plan unchanged.
+    w.advanceScenario();
+    QVERIFY2(context().contains(QStringLiteral("DUST RISING")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("Plan unchanged")),
+             qPrintable(context()));
+    QCOMPARE(map->planRoutes().size(), 2);
+
+    // S2: the storm cuts the budget and drops T2 from the plan.
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 2);
+    QVERIFY2(context().contains(QStringLiteral("DUST STORM")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("360")), qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("90")), qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("plan now T1")),
+             qPrintable(context()));
+    QCOMPARE(map->planRoutes().size(), 1);
+    QVERIFY(w.route().valid);
+    QVERIFY(!w.route().points.isEmpty());
+    // The route ends at the safe snap point next to T1, not the pin itself.
+    QVERIFY(QLineF(w.route().points.constLast(),
+                   targetPosition(QStringLiteral("T1")))
+                .length()
+            < 10.0);
+
+    // S3: comms outage only; the plan is unchanged.
+    w.advanceScenario();
+    QVERIFY2(context().contains(QStringLiteral("COMMS CLOSED")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("offline")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("plan unchanged")),
+             qPrintable(context()));
+    QCOMPARE(map->planRoutes().size(), 1);
+
+    // S4: science disabled, route and plan absent.
+    w.advanceScenario();
+    QVERIFY2(context().contains(QStringLiteral("POWER LOW")),
+             qPrintable(context()));
+    QVERIFY2(context().contains(QStringLiteral("science disabled")),
+             qPrintable(context()));
+    QVERIFY(map->planRoutes().isEmpty());
+    QVERIFY(!w.route().valid);
+}
+
+void TestMainWindow::routeSectionStaysAboveTheFold()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    w.resize(1280, 800);
+    w.show();
+    QTest::qWait(20);
+
+    // Move to the storm step, where warnings were previously longest.
+    w.advanceScenario();
+    w.advanceScenario();
+    QCOMPARE(w.scenarioStepIndex(), 2);
+    QCoreApplication::processEvents();
+    QTest::qWait(20);
+
+    SidePanel *panel = w.sidePanel();
+    QVERIFY(panel);
+    auto *routeLabel =
+        panel->findChild<QLabel *>(QStringLiteral("routeSummaryLabel"));
+    QVERIFY(routeLabel);
+    auto *scroll =
+        panel->findChild<QScrollArea *>(QStringLiteral("sidePanelScroll"));
+    QVERIFY(scroll);
+
+    const QPoint routeTop =
+        routeLabel->mapTo(scroll->viewport(), QPoint(0, 0));
+    QVERIFY2(routeTop.y() < scroll->viewport()->height(),
+             qPrintable(QStringLiteral("route header y %1, viewport height %2")
+                            .arg(routeTop.y())
+                            .arg(scroll->viewport()->height())));
+
+    auto *walkback =
+        panel->findChild<QLabel *>(QStringLiteral("walkbackNote"));
+    QVERIFY(walkback);
+    const QPoint walkTop =
+        walkback->mapTo(scroll->viewport(), QPoint(0, 0));
+    QVERIFY2(walkTop.y() >= 0 &&
+                 walkTop.y() + walkback->height() <= scroll->viewport()->height(),
+             qPrintable(QStringLiteral("walkback y %1 height %2, viewport height %3")
+                            .arg(walkTop.y())
+                            .arg(walkback->height())
+                            .arg(scroll->viewport()->height())));
+
+    // The T2 warning is the compact walkback line, not the old banner.
+    bool sawCompactT2 = false;
+    const QString banner = ScenarioSteps::at(2).banner;
+    for (const QString &warning : panel->warningTexts()) {
+        if (warning.startsWith(QStringLiteral("T2")) &&
+            warning.contains(QStringLiteral("walkback fails by"))) {
+            sawCompactT2 = true;
+            QVERIFY(warning != banner);
+        }
+    }
+    QVERIFY2(sawCompactT2,
+             qPrintable(panel->warningTexts().join(QLatin1Char('|'))));
+
+    w.close();
+}
+
+void TestMainWindow::mapKeyFitsTheDock()
+{
+    if (!hasPreparedAssets())
+        QSKIP("prepared HiRISE ortho not present");
+
+    MainWindow w;
+    w.resize(1280, 800);
+    w.show();
+    QCoreApplication::processEvents();
+
+    QLabel *key = w.findChild<QLabel *>(QStringLiteral("mapKeyNote"));
+    QVERIFY(key);
+    QVERIFY2(key->text().contains(QStringLiteral("DATA NOTE")),
+             qPrintable(key->text()));
+
+    // The rendered height must cover the wrapped text...
+    QVERIFY2(key->height() >= key->heightForWidth(key->width()),
+             qPrintable(QStringLiteral("key %1x%2, heightForWidth(%3) = %4")
+                            .arg(key->width())
+                            .arg(key->height())
+                            .arg(key->width())
+                            .arg(key->heightForWidth(key->width()))));
+    // ...and the last line must sit inside the window.
+    const int bottom = key->mapTo(&w, QPoint(0, key->height())).y();
+    QVERIFY2(bottom <= w.height(),
+             qPrintable(QStringLiteral("key bottom %1, window height %2")
+                            .arg(bottom)
+                            .arg(w.height())));
+
+    w.close();
 }
 
 void TestMainWindow::missingAssetsFailLoudly()

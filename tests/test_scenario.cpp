@@ -48,6 +48,16 @@ void TestScenario::stepsCarryTheDocumentedValues()
         QVERIFY2(!ScenarioSteps::at(i).banner.isEmpty(), qPrintable(QString::number(i)));
     QVERIFY(ScenarioSteps::at(2).banner.contains(QStringLiteral("90")));
     QVERIFY(ScenarioSteps::at(2).banner.contains(QStringLiteral("360")));
+
+    // Every step carries a short display title (M7 scenario context line).
+    const char *titles[] = {"NOMINAL", "DUST RISING", "DUST STORM",
+                            "COMMS CLOSED", "POWER LOW"};
+    for (int i = 0; i < 5; ++i) {
+        QVERIFY2(!ScenarioSteps::at(i).title.isEmpty(),
+                 qPrintable(QString::number(i)));
+        QCOMPARE(ScenarioSteps::at(i).title,
+                 QString::fromLatin1(titles[i]));
+    }
 }
 
 void TestScenario::outOfRangeIndexIsClamped()

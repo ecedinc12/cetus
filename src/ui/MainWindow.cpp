@@ -230,6 +230,7 @@ void MainWindow::loadMission()
     // Target-to-target leg times for the greedy multi-target plan. Edge costs
     // are symmetric, so one plan per unordered pair serves both directions.
     m_legByPair.clear();
+    m_legRouteByPair.clear();
     for (int i = 0; i < m_scenario.targets.size(); ++i) {
         for (int j = i + 1; j < m_scenario.targets.size(); ++j) {
             const ScienceTarget &from = m_scenario.targets.at(i);
@@ -238,6 +239,7 @@ void MainWindow::loadMission()
                 TraversePlanner::planToTarget(m_hazard, from.position(), to);
             m_legByPair.insert(pairKey(from.id, to.id),
                                leg.valid ? leg.timeMin : -1.0);
+            m_legRouteByPair.insert(pairKey(from.id, to.id), leg);
         }
     }
     m_missionReady = true;
@@ -296,6 +298,29 @@ void MainWindow::replan(bool firstLoad)
             },
             m_state.elapsedMin, m_state.timeBudgetMin);
     }
+
+    // Draw the whole planned traverse: primary leg first, then the
+    // target-to-target legs in plan order.
+    QVector<Route> planRoutes;
+    if (!m_plan.steps.isEmpty()) {
+        const Route firstLeg =
+            m_routeById.value(m_plan.steps.first().targetId);
+        if (firstLeg.valid)
+            planRoutes.append(firstLeg);
+        QString previousId = m_plan.steps.first().targetId;
+        for (int i = 1; i < m_plan.steps.size(); ++i) {
+            const QString nextId = m_plan.steps.at(i).targetId;
+            const Route leg =
+                m_legRouteByPair.value(pairKey(previousId, nextId));
+            if (leg.valid)
+                planRoutes.append(leg);
+            previousId = nextId;
+        }
+    }
+    if (m_plan.steps.isEmpty())
+        m_mapView->clearPlanRoutes();
+    else
+        m_mapView->setPlanRoutes(planRoutes);
 
     if (firstLoad) {
         m_mapView->setCrewStart(m_scenario.crewStart);
@@ -377,9 +402,42 @@ void MainWindow::replan(bool firstLoad)
                            "(no endurance data)."));
     }
 
+    // Scenario context line: state what this step changed, derived from the
+    // plan that was actually recomputed above.
+    QString contextDetail;
+    const QString planSummary = m_plan.summary();
+    const QString currentBudget =
+        QString::number(qRound(m_state.timeBudgetMin));
+    if (step.id == QLatin1String("S0")) {
+        contextDetail =
+            QStringLiteral("Full plan: %1 \u00b7 %2 min EVA budget.")
+                .arg(planSummary, currentBudget);
+    } else if (step.id == QLatin1String("S1")) {
+        contextDetail =
+            QStringLiteral("Dust rising. Plan unchanged: %1 \u00b7 %2 min "
+                           "budget.")
+                .arg(planSummary, currentBudget);
+    } else if (step.id == QLatin1String("S2")) {
+        contextDetail =
+            QStringLiteral("Storm: EVA budget %1 \u2192 %2 min \u00b7 plan "
+                           "now %3.")
+                .arg(qRound(Walkback::kTimeBudgetMin))
+                .arg(currentBudget, planSummary);
+    } else if (step.id == QLatin1String("S3")) {
+        contextDetail =
+            QStringLiteral("Comms offline +%1 min \u00b7 plan unchanged: "
+                           "%2.")
+                .arg(m_state.commsOfflineMin)
+                .arg(planSummary);
+    } else if (step.id == QLatin1String("S4")) {
+        contextDetail = QStringLiteral(
+            "Power low: science disabled \u00b7 return to the EVA start "
+            "(haven).");
+    }
+    m_sidePanel->setScenarioContext(step.id, step.title, contextDetail,
+                                    m_stepIndex, ScenarioSteps::count());
+
     QStringList warnings;
-    if (!step.banner.isEmpty())
-        warnings.append(step.banner);
     if (!m_route.warning.isEmpty())
         warnings.append(m_route.warning);
     for (const RankedTarget &ranked : m_rankedTargets) {
@@ -387,10 +445,14 @@ void MainWindow::replan(bool firstLoad)
             warnings.append(QStringLiteral("%1 %2 has no safe route.")
                                 .arg(ranked.target.id, ranked.target.name));
         } else if (ranked.walkbackFailed) {
-            warnings.append(QStringLiteral("%1 %2: %3")
-                                .arg(ranked.target.id, ranked.target.name,
-                                     walkbackById.value(ranked.target.id)
-                                         .reason));
+            const WalkbackResult check =
+                walkbackById.value(ranked.target.id);
+            warnings.append(
+                QStringLiteral("%1 %2: walkback fails by %3 min (%4 min "
+                               "budget).")
+                    .arg(ranked.target.id, ranked.target.name)
+                    .arg(qRound(-check.marginMin))
+                    .arg(qRound(m_state.timeBudgetMin)));
         }
     }
     const HazardMap::Stats stats = m_hazard.stats();
@@ -399,8 +461,8 @@ void MainWindow::replan(bool firstLoad)
             qRound(100.0 * static_cast<double>(stats.unknownCount) /
                    static_cast<double>(stats.cellCount));
         warnings.append(
-            QStringLiteral("%1% of the hazard grid is unknown (no data) and "
-                           "treated as no-go.")
+            QStringLiteral("%1% of hazard grid has no data \u2014 treated "
+                           "as no-go.")
                 .arg(unknownPercent));
     }
     m_sidePanel->setWarnings(warnings);

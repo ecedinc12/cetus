@@ -23,6 +23,10 @@ class SidePanel : public QWidget
 public:
     explicit SidePanel(QWidget *parent = nullptr);
 
+    // Scripted scenario banner directly under the FIELD PANEL title.
+    void setScenarioContext(const QString &stepId, const QString &title,
+                            const QString &detail, int stepIndex,
+                            int stepCount);
     void setScienceGoal(const QString &goal);
     void setRankedTargets(const QVector<RankedTarget> &targets);
     void setPrimaryTarget(const RankedTarget &primary, const Route &route);
@@ -49,6 +53,7 @@ public:
     QString latestSampleId() const;
     QString sampleErrorText() const;
 
+    QString scenarioContextText() const;
     QString scienceGoalText() const;
     QString primaryTargetId() const;
     QString primaryTargetWhy() const;
@@ -74,6 +79,7 @@ private:
     QWidget *m_content = nullptr;
     QVBoxLayout *m_contentLayout = nullptr;
 
+    QLabel *m_scenarioLabel = nullptr;
     QLabel *m_scienceGoalLabel = nullptr;
     QLabel *m_primaryTargetLabel = nullptr;
     QLabel *m_primaryWhyLabel = nullptr;

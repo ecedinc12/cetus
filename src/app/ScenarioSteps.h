@@ -20,6 +20,7 @@
 struct ScenarioStep
 {
     QString id;                    // "S0".."S4"
+    QString title;                 // short display label, e.g. "DUST STORM"
     double tau = 0.0;              // dust optical depth shown in the status bar
     double timeBudgetMin = 0.0;    // EVA budget used by the walkback rule
     bool commsClosed = false;

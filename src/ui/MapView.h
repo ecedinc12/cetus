@@ -48,6 +48,10 @@ public:
     // targets. These are display-only; routing/ranking lives elsewhere.
     void setRoute(const Route &route);
     void clearRoute();
+    // Whole multi-target plan in order: the primary leg first, then the
+    // target-to-target legs. Drawn underneath the primary route.
+    void setPlanRoutes(const QVector<Route> &routes);
+    void clearPlanRoutes();
     void setTargets(const QVector<RankedTarget> &targets, const QString &primaryId);
     void setCrewStart(const QPointF &eastNorth);
     void setHazardOverlay(const QImage &image, const QRectF &extentMeters);
@@ -55,6 +59,7 @@ public:
     void fitToRoute();
 
     const Route &route() const;
+    const QVector<Route> &planRoutes() const;
     QVector<RankedTarget> targets() const;
     QPointF crewStart() const;
 
@@ -107,6 +112,7 @@ private:
     bool m_didInitialFit = false;
 
     Route m_route;
+    QVector<Route> m_planRoutes;
     QVector<RankedTarget> m_targets;
     QString m_primaryTargetId;
     QPointF m_crewStart;

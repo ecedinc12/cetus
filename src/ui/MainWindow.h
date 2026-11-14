@@ -123,6 +123,8 @@ private:
     // Target-to-target travel minutes, keyed by the sorted id pair; negative
     // means no safe route. Planned once, like the routes above.
     QHash<QString, double> m_legByPair;
+    // Actual route geometry for each target pair, for drawing the full plan.
+    QHash<QString, Route> m_legRouteByPair;
     MissionPlan m_plan;
     bool m_missionReady = false;
     QToolButton *m_advanceButton = nullptr;

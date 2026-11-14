@@ -47,6 +47,7 @@ private slots:
     void buildsHazardMap();
     void allTargetPinsAreTraversable();
     void hazardImageRowsAreNorthUp();
+    void hazardImageMarksUnknownDistinctly();
     void ranksByValueRate();
     void loadsRealScenario();
     void rejectsBadScenario();
@@ -248,6 +249,43 @@ void TestAnalysis::hazardImageRowsAreNorthUp()
     }
     QVERIFY(opaquePixels > 0);
     QVERIFY(opaquePixels < image.width() * image.height());
+}
+
+void TestAnalysis::hazardImageMarksUnknownDistinctly()
+{
+    RasterLayer slope(SiteConfig::slopeLayerMetadata());
+    QString error;
+    QVERIFY2(openSlope(&slope, &error), qPrintable(error));
+
+    HazardMap hazard;
+    QVERIFY2(hazard.build(slope, 20.0, &error), qPrintable(error));
+    if (hazard.stats().unknownCount == 0)
+        QSKIP("real slope raster has no unknown cells");
+
+    const QImage image = hazard.hazardImage(QSize(320, 640));
+    QCOMPARE(image.size(), QSize(320, 640));
+
+    const QRgb unknown = qRgba(155, 89, 192, 170);
+    const QRgb noGo = qRgba(220, 30, 20, 170);
+    bool foundUnknown = false;
+    bool foundNoGo = false;
+    for (int y = 0; y < image.height(); ++y)
+    {
+        const QRgb *line =
+            reinterpret_cast<const QRgb *>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x)
+        {
+            if (line[x] == unknown)
+                foundUnknown = true;
+            if (line[x] == noGo)
+                foundNoGo = true;
+        }
+    }
+
+    QVERIFY2(foundUnknown,
+             "unknown hazard cells were not rendered purple");
+    if (!foundNoGo)
+        QSKIP("no known no-go pixel at this resolution in the real grid");
 }
 
 void TestAnalysis::ranksByValueRate()

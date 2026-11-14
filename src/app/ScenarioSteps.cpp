@@ -15,12 +15,14 @@ QVector<ScenarioStep> buildSteps()
 
     ScenarioStep s0;
     s0.id = QStringLiteral("S0");
+    s0.title = QStringLiteral("NOMINAL");
     s0.tau = 0.6;
     s0.timeBudgetMin = Walkback::kTimeBudgetMin;
     steps.append(s0);
 
     ScenarioStep s1 = s0;
     s1.id = QStringLiteral("S1");
+    s1.title = QStringLiteral("DUST RISING");
     s1.tau = 0.8;
     s1.banner = QStringLiteral(
         "Dust rising: tau 0.8 [scenario]. Plan unchanged.");
@@ -28,6 +30,7 @@ QVector<ScenarioStep> buildSteps()
 
     ScenarioStep s2 = s1;
     s2.id = QStringLiteral("S2");
+    s2.title = QStringLiteral("DUST STORM");
     s2.tau = ScenarioSteps::kStormTau;
     s2.timeBudgetMin = ScenarioSteps::kStormBudgetMin;
     s2.banner =
@@ -41,6 +44,7 @@ QVector<ScenarioStep> buildSteps()
 
     ScenarioStep s3 = s2;
     s3.id = QStringLiteral("S3");
+    s3.title = QStringLiteral("COMMS CLOSED");
     s3.commsClosed = true;
     s3.commsOfflineMin = ScenarioSteps::kCommsOfflineMin;
     s3.banner =
@@ -52,6 +56,7 @@ QVector<ScenarioStep> buildSteps()
 
     ScenarioStep s4 = s3;
     s4.id = QStringLiteral("S4");
+    s4.title = QStringLiteral("POWER LOW");
     s4.scienceDisabled = true;
     s4.banner =
         QStringLiteral(
