@@ -259,7 +259,13 @@ QImage HazardMap::hazardImage(const QSize &targetPixels) const
                                  targetPixels.width()),
                 0, m_width - 1);
             const double slope = m_slopeDeg.at(row * m_width + col);
-            if (!std::isfinite(slope) || slope > kNoGoSlopeDeg)
+            // Overlay colours: red = known steep no-go, purple = unknown /
+            // no DEM data (still no-go for routing), amber = caution 10-20
+            // degrees (still traversable).
+            constexpr QRgb kUnknown = qRgba(155, 89, 192, 170);
+            if (!std::isfinite(slope))
+                line[x] = kUnknown;
+            else if (slope > kNoGoSlopeDeg)
                 line[x] = qRgba(220, 30, 20, 170);
             else if (slope >= 10.0)
                 line[x] = qRgba(255, 170, 0, 120);

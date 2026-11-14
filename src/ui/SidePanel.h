@@ -23,10 +23,21 @@ class SidePanel : public QWidget
 public:
     explicit SidePanel(QWidget *parent = nullptr);
 
+    // Scripted scenario banner directly under the FIELD PANEL title.
+    void setScenarioContext(const QString &stepId, const QString &title,
+                            const QString &detail, int stepIndex,
+                            int stepCount);
     void setScienceGoal(const QString &goal);
     void setRankedTargets(const QVector<RankedTarget> &targets);
     void setPrimaryTarget(const RankedTarget &primary, const Route &route);
     void setConsumablesText(const QString &text);
+    // Walkback status line shown under the route summary (M4).
+    void setWalkbackText(const QString &text);
+    // Replaces the ROUTE header text. setPrimaryTarget() writes "NO SAFE
+    // ROUTE" for any invalid route; callers use this when there is no route
+    // for a reason other than terrain (science disabled, nothing fits the
+    // time budget) so the header does not say the terrain is unsafe.
+    void setRouteSummaryText(const QString &text);
     void setWarnings(const QStringList &warnings);
 
     // M6 sample logging. Empty target disables the collect button; empty
@@ -42,10 +53,12 @@ public:
     QString latestSampleId() const;
     QString sampleErrorText() const;
 
+    QString scenarioContextText() const;
     QString scienceGoalText() const;
     QString primaryTargetId() const;
     QString primaryTargetWhy() const;
     QString routeSummaryText() const;
+    QString walkbackText() const;
     QStringList warningTexts() const;
     int rankedTargetCount() const;
 
@@ -66,6 +79,7 @@ private:
     QWidget *m_content = nullptr;
     QVBoxLayout *m_contentLayout = nullptr;
 
+    QLabel *m_scenarioLabel = nullptr;
     QLabel *m_scienceGoalLabel = nullptr;
     QLabel *m_primaryTargetLabel = nullptr;
     QLabel *m_primaryWhyLabel = nullptr;

@@ -35,6 +35,7 @@ constexpr QColor kDarkBar(8, 6, 5, 170);
 constexpr QColor kHazardTint(220, 40, 30, 255);
 constexpr QColor kRouteCasing(4, 10, 14, 210);
 constexpr QColor kRouteCore(0, 220, 255);
+constexpr QColor kPlanRouteCore(150, 235, 255);
 constexpr QColor kCrewGreen(80, 210, 90);
 constexpr QColor kTargetAmber(255, 190, 60);
 constexpr QColor kTargetRed(220, 60, 50);
@@ -364,6 +365,18 @@ void MapView::clearRoute()
     update();
 }
 
+void MapView::setPlanRoutes(const QVector<Route> &routes)
+{
+    m_planRoutes = routes;
+    update();
+}
+
+void MapView::clearPlanRoutes()
+{
+    m_planRoutes.clear();
+    update();
+}
+
 void MapView::setTargets(const QVector<RankedTarget> &targets,
                          const QString &primaryId)
 {
@@ -393,9 +406,40 @@ void MapView::clearHazardOverlay()
     update();
 }
 
+void MapView::setHazardVisible(bool visible)
+{
+    if (m_hazardVisible == visible)
+        return;
+    m_hazardVisible = visible;
+    update();
+}
+
+bool MapView::isHazardVisible() const
+{
+    return m_hazardVisible;
+}
+
+void MapView::setTargetsVisible(bool visible)
+{
+    if (m_targetsVisible == visible)
+        return;
+    m_targetsVisible = visible;
+    update();
+}
+
+bool MapView::areTargetsVisible() const
+{
+    return m_targetsVisible;
+}
+
 const Route &MapView::route() const
 {
     return m_route;
+}
+
+const QVector<Route> &MapView::planRoutes() const
+{
+    return m_planRoutes;
 }
 
 QVector<RankedTarget> MapView::targets() const
@@ -410,14 +454,23 @@ QPointF MapView::crewStart() const
 
 void MapView::fitToRoute()
 {
-    if (!m_route.valid || m_route.points.isEmpty())
+    // Include every planned leg so the view frames the whole traverse, not
+    // just the immediate primary route.
+    QVector<QPointF> allPoints;
+    if (m_route.valid)
+        allPoints.append(m_route.points);
+    for (const Route &leg : m_planRoutes) {
+        if (leg.valid)
+            allPoints.append(leg.points);
+    }
+    if (allPoints.isEmpty())
         return;
 
-    double minX = m_route.points.first().x();
+    double minX = allPoints.first().x();
     double maxX = minX;
-    double minY = m_route.points.first().y();
+    double minY = allPoints.first().y();
     double maxY = minY;
-    for (const QPointF &point : m_route.points) {
+    for (const QPointF &point : allPoints) {
         minX = qMin(minX, point.x());
         maxX = qMax(maxX, point.x());
         minY = qMin(minY, point.y());
@@ -465,7 +518,8 @@ void MapView::drawOverlays(QPainter &painter) const
 
     // Hazard grid: metre extent -> pixels. readImage-style north-up image
     // (row 0 = north edge), drawn as-is and never flipped.
-    if (!m_hazardOverlay.isNull() && m_hazardExtent.isValid()
+    if (m_hazardVisible && !m_hazardOverlay.isNull()
+        && m_hazardExtent.isValid()
         && m_hazardExtent.width() > 0.0 && m_hazardExtent.height() > 0.0) {
         const QRectF target(
             (m_hazardExtent.left() - visible.left()) / m_mpp,
@@ -478,7 +532,28 @@ void MapView::drawOverlays(QPainter &painter) const
         painter.restore();
     }
 
-    // Route: dark casing under a bright cyan core.
+    // Planned legs after the primary: dashed lighter cyan with a dark
+    // casing, drawn underneath the primary route so the next action reads
+    // first.
+    for (int i = 1; i < m_planRoutes.size(); ++i) {
+        const Route &leg = m_planRoutes.at(i);
+        if (!leg.valid || leg.points.size() < 2)
+            continue;
+        QPolygonF polyline;
+        polyline.reserve(leg.points.size());
+        for (const QPointF &point : leg.points)
+            polyline.append(metersToPixel(point));
+
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(kRouteCasing, 5, Qt::SolidLine, Qt::RoundCap,
+                            Qt::RoundJoin));
+        painter.drawPolyline(polyline);
+        painter.setPen(QPen(kPlanRouteCore, 3, Qt::DashLine, Qt::RoundCap,
+                            Qt::RoundJoin));
+        painter.drawPolyline(polyline);
+    }
+
+    // Primary route: dark casing under a bright cyan core.
     if (m_route.valid && m_route.points.size() >= 2) {
         QPolygonF polyline;
         polyline.reserve(m_route.points.size());
@@ -533,6 +608,8 @@ void MapView::drawOverlays(QPainter &painter) const
     // Science targets: amber = reachable, red ring = unreachable/no-go,
     // primary = larger orange marker with its id/name.
     for (const RankedTarget &ranked : m_targets) {
+        if (!m_targetsVisible)
+            break;
         const QPointF pixel = metersToPixel(ranked.target.position());
         const bool primary = !m_primaryTargetId.isEmpty()
                              && ranked.target.id == m_primaryTargetId;
@@ -545,14 +622,27 @@ void MapView::drawOverlays(QPainter &painter) const
                       QStringLiteral("%1 · %2")
                           .arg(ranked.target.id, ranked.target.name),
                       kPrimaryOrange);
-        } else if (ranked.reachable) {
-            painter.setPen(QPen(QColor(10, 8, 5, 230), 2));
-            painter.setBrush(kTargetAmber);
-            painter.drawEllipse(pixel, 5.0, 5.0);
-        } else {
+        } else if (!ranked.reachable) {
             painter.setPen(QPen(kTargetRed, 2));
             painter.setBrush(Qt::NoBrush);
             painter.drawEllipse(pixel, 6.0, 6.0);
+            drawLabel(pixel,
+                      QStringLiteral("%1 \u00b7 NO ROUTE")
+                          .arg(ranked.target.id),
+                      kTargetRed);
+        } else if (ranked.walkbackFailed) {
+            painter.setPen(QPen(kTargetRed, 2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(pixel, 6.0, 6.0);
+            drawLabel(pixel,
+                      QStringLiteral("%1 \u00b7 WALKBACK FAIL")
+                          .arg(ranked.target.id),
+                      kTargetRed);
+        } else {
+            painter.setPen(QPen(QColor(10, 8, 5, 230), 2));
+            painter.setBrush(kTargetAmber);
+            painter.drawEllipse(pixel, 5.0, 5.0);
+            drawLabel(pixel, ranked.target.id, kTargetAmber);
         }
     }
 }

@@ -234,13 +234,20 @@ Deterministic, one control in the header ("Advance scenario"):
 
 | Step | Change | Expected behavior |
 |---|---|---|
-| S0 | tau 0.6, all targets valid | recommends T2, full route |
+| S0 | tau 0.6, 360 min EVA budget | recommends T1 (best value rate); T3 fails walkback |
 | S1 | tau 0.8 | warning appears, same plan |
-| S2 | tau 1.1 | drops farthest/lowest-value target, reroutes, banner explains |
+| S2 | tau 1.1, EVA budget cut to 90 min [tunable] | T2 now fails walkback and is dropped; T1 stays primary; banner explains |
 | S3 | comms window closes | badge "offline until +40 min", no functional change |
-| S4 | power < 35% | forces return to haven, science disabled |
+| S4 | power < 35% (scripted event, not modeled) | science disabled, return to haven (EVA start); ROUTE header says SCIENCE DISABLED |
 
-Thresholds live in one header, not scattered.
+Thresholds live in one header (`src/app/ScenarioSteps.h`), not scattered.
+
+Implementation note (as built, M5): with the real target values T1 has the best
+value rate at every step, so tau does not flip the primary target. The visible
+replan is the budget cut at S2 (T2 flips to WALKBACK FAIL). tau has no direct
+effect on speed or power; the S2 budget, the S3 comms window and the S4 power
+event are scripted [tunable] design choices, not NASA values. The original
+"S0 recommends T2" line was stale and has been corrected.
 
 ---
 

@@ -37,6 +37,8 @@ private slots:
     void drawsRouteAndTargets();
     void drawsHazardOverlay();
     void fitToRouteShowsContext();
+    void fitToRouteIncludesPlanLegs();
+    void planRoutesCanBeCleared();
 
 private:
     static QString orthoPath();
@@ -452,6 +454,53 @@ void TestMapView::fitToRouteShowsContext()
                             .arg(visible.width())));
     QVERIFY(visible.contains(start));
     QVERIFY(visible.contains(end));
+}
+
+void TestMapView::fitToRouteIncludesPlanLegs()
+{
+    MapView view;
+    view.resize(640, 480);
+    view.setMetersPerPixel(0.5);
+
+    Route primary;
+    primary.points = {QPointF(0.0, 0.0), QPointF(100.0, 0.0)};
+    primary.distanceM = 100.0;
+    primary.timeMin = 2.0;
+    primary.valid = true;
+
+    // A far second leg that the primary route alone would never frame.
+    Route second;
+    second.points = {QPointF(100.0, 0.0), QPointF(6000.0, 4000.0)};
+    second.distanceM = 7000.0;
+    second.timeMin = 90.0;
+    second.valid = true;
+
+    view.setRoute(primary);
+    view.setPlanRoutes({primary, second});
+    view.fitToRoute();
+
+    const QRectF visible = view.visibleExtentMeters();
+    QVERIFY2(visible.contains(second.points.constLast()),
+             qPrintable(QStringLiteral("visible %1,%2 %3x%4")
+                            .arg(visible.x())
+                            .arg(visible.y())
+                            .arg(visible.width())
+                            .arg(visible.height())));
+    QVERIFY(visible.contains(primary.points.first()));
+}
+
+void TestMapView::planRoutesCanBeCleared()
+{
+    MapView view;
+
+    Route route;
+    route.points = {QPointF(0.0, 0.0), QPointF(10.0, 0.0)};
+    route.valid = true;
+
+    view.setPlanRoutes({route, route});
+    QCOMPARE(view.planRoutes().size(), 2);
+    view.clearPlanRoutes();
+    QCOMPARE(view.planRoutes().size(), 0);
 }
 
 QTEST_MAIN(TestMapView)

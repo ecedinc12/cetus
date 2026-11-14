@@ -31,6 +31,7 @@ public:
     QStringList visibleLayerIds() const;
     QCheckBox *checkbox(const QString &layerId) const;
     QLabel *detailLabel(const QString &layerId) const;
+    QString mapKeyText() const;  // test hook: overlay/footprint note
 
 public slots:
     void setLayerVisible(const QString &layerId, bool visible);
@@ -51,5 +52,6 @@ private:
 
     const DatasetRegistry *m_registry = nullptr;
     QVBoxLayout *m_rowsLayout = nullptr;
+    QLabel *m_mapKeyNote = nullptr;
     std::vector<Row> m_rows;
 };

@@ -20,6 +20,7 @@ private slots:
     void toggleEmitsOnce();
     void unknownIdIgnored();
     void emptyRegistryClearsRows();
+    void mapKeyExplainsOverlaysAndFootprint();
 
 private:
     static QString orthoPath();
@@ -157,6 +158,31 @@ void TestLayerLegend::emptyRegistryClearsRows()
     QCOMPARE(legend.layerCount(), 0);
     QVERIFY(legend.visibleLayerIds().isEmpty());
     QVERIFY(!legend.checkbox(QStringLiteral("hirise_optical")));
+}
+
+void TestLayerLegend::mapKeyExplainsOverlaysAndFootprint()
+{
+    // The key is static, so no registry or prepared asset is needed.
+    LayerLegend legend;
+    const QString text = legend.mapKeyText();
+    QVERIFY2(!text.isEmpty(), "map key note is empty");
+
+    for (const QString &term : {QStringLiteral("NO-GO"),
+                                QStringLiteral("UNKNOWN"),
+                                QStringLiteral("CAUTION"),
+                                QStringLiteral("ROUTE"),
+                                QStringLiteral("rotated"),
+                                QStringLiteral("north-up"),
+                                QStringLiteral("no data"),
+                                QStringLiteral("20")})
+    {
+        QVERIFY2(text.contains(term, Qt::CaseInsensitive),
+                 qPrintable(term + QStringLiteral(" missing from map key")));
+    }
+
+    QLabel *note = legend.findChild<QLabel *>(QStringLiteral("mapKeyNote"));
+    QVERIFY(note);
+    QCOMPARE(note->text(), text);
 }
 
 QTEST_MAIN(TestLayerLegend)

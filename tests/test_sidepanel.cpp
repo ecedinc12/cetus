@@ -17,6 +17,8 @@ class TestSidePanel : public QObject
 private slots:
     void rendersOneRecommendation();
     void showsNoSafeRoute();
+    void showsWalkbackStatus();
+    void routeSummaryCanBeOverridden();
     void rendersPassedWarnings();
     void wrappedTextIsNotClipped();
     void safetyAndRouteAreAboveTheFold();
@@ -110,6 +112,40 @@ void TestSidePanel::showsNoSafeRoute()
     QVERIFY(walkback->text().contains(QStringLiteral("pending")));
     QVERIFY(!walkback->text().contains(QStringLiteral("safe"),
                                        Qt::CaseInsensitive));
+}
+
+void TestSidePanel::showsWalkbackStatus()
+{
+    SidePanel panel;
+    panel.setWalkbackText(QStringLiteral("WALKBACK WITHIN BUDGET: margin 316 min."));
+    QVERIFY(panel.walkbackText().contains(QStringLiteral("316")));
+
+    RankedTarget failed = makeTarget(QStringLiteral("T3"),
+                                     QStringLiteral("Far Ridge"), 211, 18,
+                                     0.004, true);
+    failed.walkbackFailed = true;
+    panel.setRankedTargets({failed});
+    auto *row = panel.findChild<QLabel *>(QStringLiteral("targetRow_T3"));
+    QVERIFY(row != nullptr);
+    QVERIFY(row->text().contains(QStringLiteral("WALKBACK FAIL")));
+    QVERIFY(!row->text().contains(QStringLiteral("UNREACHABLE")));
+}
+
+void TestSidePanel::routeSummaryCanBeOverridden()
+{
+    SidePanel panel;
+
+    // An invalid route normally reads NO SAFE ROUTE ...
+    RankedTarget none;
+    Route route;
+    route.valid = false;
+    panel.setPrimaryTarget(none, route);
+    QVERIFY(panel.routeSummaryText().contains(QStringLiteral("NO SAFE ROUTE")));
+
+    // ... but a caller with a different reason can replace the header.
+    panel.setRouteSummaryText(QStringLiteral("SCIENCE DISABLED: no science route"));
+    QVERIFY(panel.routeSummaryText().contains(QStringLiteral("SCIENCE DISABLED")));
+    QVERIFY(!panel.routeSummaryText().contains(QStringLiteral("NO SAFE ROUTE")));
 }
 
 void TestSidePanel::rendersPassedWarnings()

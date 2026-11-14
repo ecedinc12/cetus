@@ -2,5 +2,5 @@ build/
 logs/
 data/raw/
 data/processed/
-assets/layers/*.tif
-assets/layers/*.tif.aux.xml
+assets/layers/
+

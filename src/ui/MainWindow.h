@@ -3,9 +3,13 @@
 #include "analysis/HazardMap.h"
 #include "analysis/TargetRanking.h"
 #include "app/MissionScenario.h"
+#include "app/MissionState.h"
+#include "app/ScenarioSteps.h"
 #include "data/DatasetRegistry.h"
+#include "routing/MissionPlan.h"
 #include "routing/TraversePlanner.h"
 
+#include <QHash>
 #include <QMainWindow>
 #include <QString>
 #include <QVector>
@@ -49,6 +53,18 @@ public:
     QString primaryTargetId() const;
     SidePanel *sidePanel() const;
 
+    // M5 scripted scenario (S0..S4). advanceScenario() moves to the next step
+    // (S4 wraps back to S0) and recomputes ranking, walkback, route and panel.
+    // Does nothing when the mission data did not load.
+    void advanceScenario();
+    int scenarioStepIndex() const;
+    const ScenarioStep &scenarioStep() const;
+    const MissionState &missionState() const;
+    // Greedy multi-target plan for the current step (empty in S4).
+    const MissionPlan &missionPlan() const;
+    // True in step S4: no science target is recommended.
+    bool scienceDisabled() const;
+
     // M6 field-note accessors (null/0 when the sample log could not load).
     const SampleCollector *sampleCollector() const;
     int sampleCount() const;
@@ -64,6 +80,11 @@ private:
     // Load the scenario, build the hazard grid, plan one route per target and
     // present exactly one recommendation. Only called when the rasters loaded.
     void loadMission();
+    // Recompute ranking, walkback, primary target, map and panel for the
+    // current scenario step. `firstLoad` also sets the crew start and the
+    // hazard overlay, which never change between steps.
+    void replan(bool firstLoad);
+    void updateAdvanceButton();
     // Refresh the status-bar mission/layer summary. Keeps the loud load
     // failure message when the rasters could not be loaded.
     void updateStatus();
@@ -92,6 +113,21 @@ private:
     QString m_primaryTargetId;
     QString m_missionError;
     bool m_scenarioLoaded = false;
+
+    MissionState m_state;
+    int m_stepIndex = 0;
+    // Routes and travel times are planned once (the terrain does not change
+    // between scenario steps); only the budget and the flags change.
+    QHash<QString, Route> m_routeById;
+    QHash<QString, double> m_travelById;
+    // Target-to-target travel minutes, keyed by the sorted id pair; negative
+    // means no safe route. Planned once, like the routes above.
+    QHash<QString, double> m_legByPair;
+    // Actual route geometry for each target pair, for drawing the full plan.
+    QHash<QString, Route> m_legRouteByPair;
+    MissionPlan m_plan;
+    bool m_missionReady = false;
+    QToolButton *m_advanceButton = nullptr;
 
     std::unique_ptr<SampleCollector> m_collector;
     QString m_sampleError;

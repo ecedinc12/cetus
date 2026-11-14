@@ -40,7 +40,7 @@ SidePanel::SidePanel(QWidget *parent)
 {
     setObjectName(QStringLiteral("sidePanel"));
     setStyleSheet(QStringLiteral("QWidget#sidePanel { background: #1c1612; }"));
-    setMinimumWidth(300);
+    setMinimumWidth(340);
 
     auto *outerLayout = new QVBoxLayout(this);
     outerLayout->setContentsMargins(0, 0, 0, 0);
@@ -72,8 +72,8 @@ SidePanel::SidePanel(QWidget *parent)
     m_scroll->setWidget(m_content);
 
     m_contentLayout = new QVBoxLayout(m_content);
-    m_contentLayout->setContentsMargins(16, 16, 16, 16);
-    m_contentLayout->setSpacing(10);
+    m_contentLayout->setContentsMargins(16, 4, 16, 10);
+    m_contentLayout->setSpacing(4);
 
     auto *title = new QLabel(tr("FIELD PANEL"), m_content);
     title->setStyleSheet(QStringLiteral(
@@ -81,12 +81,24 @@ SidePanel::SidePanel(QWidget *parent)
         " letter-spacing: 2px;"));
     m_contentLayout->addWidget(title);
 
+    // Scripted scenario banner: what step the crew is in and what changed.
+    // Field-equipment styling (dark backing, amber border, light text).
+    m_scenarioLabel = new QLabel(m_content);
+    m_scenarioLabel->setObjectName(QStringLiteral("scenarioContextLabel"));
+    m_scenarioLabel->setWordWrap(true);
+    m_scenarioLabel->setTextFormat(Qt::RichText);
+    m_scenarioLabel->setStyleSheet(
+        QStringLiteral("font-size: 12px; color: #f5f0e8;"
+                       " background: #241a0c; border: 2px solid #ffbe3c;"
+                       " border-radius: 4px; padding: 3px;"));
+    m_contentLayout->addWidget(m_scenarioLabel);
+
     addSectionHeader(m_contentLayout, m_content, tr("SCIENCE GOAL"));
     m_scienceGoalLabel = new QLabel(tr("No science goal set."), m_content);
     m_scienceGoalLabel->setObjectName(QStringLiteral("scienceGoalLabel"));
     m_scienceGoalLabel->setWordWrap(true);
     m_scienceGoalLabel->setStyleSheet(
-        QStringLiteral("font-size: 15px; color: #f5f0e8;"));
+        QStringLiteral("font-size: 14px; color: #f5f0e8;"));
     m_contentLayout->addWidget(m_scienceGoalLabel);
 
     // Hazard-first ordering (AGENTS.md §7): warnings, route and target sit
@@ -96,9 +108,9 @@ SidePanel::SidePanel(QWidget *parent)
     m_warningLabel->setObjectName(QStringLiteral("warningLabel"));
     m_warningLabel->setWordWrap(true);
     m_warningLabel->setStyleSheet(
-        QStringLiteral("font-size: 14px; font-weight: bold; color: #ffd9d0;"
+        QStringLiteral("font-size: 12px; font-weight: bold; color: #ffd9d0;"
                        " background: #781814; border: 1px solid #b3302a;"
-                       " border-radius: 4px; padding: 8px;"));
+                       " border-radius: 4px; padding: 4px;"));
     m_contentLayout->addWidget(m_warningLabel);
 
     addSectionHeader(m_contentLayout, m_content, tr("ROUTE"));
@@ -109,9 +121,12 @@ SidePanel::SidePanel(QWidget *parent)
         QStringLiteral("font-size: 15px; font-weight: bold; color: #7fe6ff;"));
     m_contentLayout->addWidget(m_routeSummaryLabel);
 
-    // M3 deliberately does not claim walkback/consumable safety; that is M4.
-    m_walkbackNote = new QLabel(tr("Walkback: pending M4"), m_content);
+    // Walkback status (M4). Until a plan is checked it says so; it never
+    // implies the route is safe.
+    m_walkbackNote = new QLabel(tr("Walkback: pending (no plan to check)"),
+                                m_content);
     m_walkbackNote->setObjectName(QStringLiteral("walkbackNote"));
+    m_walkbackNote->setWordWrap(true);
     m_walkbackNote->setStyleSheet(
         QStringLiteral("font-size: 12px; color: #b4a89c;"));
     m_contentLayout->addWidget(m_walkbackNote);
@@ -128,7 +143,7 @@ SidePanel::SidePanel(QWidget *parent)
     m_primaryWhyLabel->setObjectName(QStringLiteral("primaryWhyLabel"));
     m_primaryWhyLabel->setWordWrap(true);
     m_primaryWhyLabel->setStyleSheet(
-        QStringLiteral("font-size: 14px; color: #d8cec2;"));
+        QStringLiteral("font-size: 13px; color: #d8cec2;"));
     m_contentLayout->addWidget(m_primaryWhyLabel);
 
     m_collectSampleButton = new QPushButton(tr("COLLECT SAMPLE"), m_content);
@@ -161,9 +176,9 @@ SidePanel::SidePanel(QWidget *parent)
     m_sampleErrorLabel->setObjectName(QStringLiteral("sampleErrorLabel"));
     m_sampleErrorLabel->setWordWrap(true);
     m_sampleErrorLabel->setStyleSheet(
-        QStringLiteral("font-size: 14px; font-weight: bold; color: #ffd9d0;"
+        QStringLiteral("font-size: 13px; font-weight: bold; color: #ffd9d0;"
                        " background: #781814; border: 1px solid #b3302a;"
-                       " border-radius: 4px; padding: 8px;"));
+                       " border-radius: 4px; padding: 6px;"));
     m_sampleErrorLabel->hide();
     m_contentLayout->addWidget(m_sampleErrorLabel);
 
@@ -172,7 +187,7 @@ SidePanel::SidePanel(QWidget *parent)
     m_consumablesLabel->setObjectName(QStringLiteral("consumablesLabel"));
     m_consumablesLabel->setWordWrap(true);
     m_consumablesLabel->setStyleSheet(
-        QStringLiteral("font-size: 14px; color: #f5f0e8;"));
+        QStringLiteral("font-size: 13px; color: #f5f0e8;"));
     m_contentLayout->addWidget(m_consumablesLabel);
 
     addSectionHeader(m_contentLayout, m_content, tr("RANKED TARGETS"));
@@ -244,6 +259,7 @@ void SidePanel::updateWrappedHeights()
         label->setMinimumHeight(minimum);
     };
 
+    setLabelMinimum(m_scenarioLabel, 0);
     setLabelMinimum(m_scienceGoalLabel, 0);
     setLabelMinimum(m_primaryTargetLabel, 0);
     setLabelMinimum(m_primaryWhyLabel, 0);
@@ -252,8 +268,27 @@ void SidePanel::updateWrappedHeights()
     for (QLabel *row : m_targetRows)
         setLabelMinimum(row, kRowBaseHeight);
     setLabelMinimum(m_routeSummaryLabel, 0);
+    setLabelMinimum(m_walkbackNote, 0);
     setLabelMinimum(m_consumablesLabel, 0);
     setLabelMinimum(m_warningLabel, 0);
+}
+
+void SidePanel::setScenarioContext(const QString &stepId,
+                                   const QString &title,
+                                   const QString &detail, int stepIndex,
+                                   int stepCount)
+{
+    if (!m_scenarioLabel)
+        return;
+    const QString heading =
+        QStringLiteral("SCENARIO %1 \u00b7 %2 \u00b7 %3/%4")
+            .arg(stepId, title)
+            .arg(stepIndex + 1)
+            .arg(stepCount);
+    m_scenarioLabel->setText(QStringLiteral("<b>%1</b><br>%2")
+                                 .arg(heading.toHtmlEscaped(),
+                                      detail.toHtmlEscaped()));
+    updateWrappedHeights();
 }
 
 void SidePanel::setScienceGoal(const QString &goal)
@@ -304,6 +339,16 @@ void SidePanel::setPrimaryTarget(const RankedTarget &primary, const Route &route
 void SidePanel::setConsumablesText(const QString &text)
 {
     applyWrappedText(m_consumablesLabel, text);
+}
+
+void SidePanel::setWalkbackText(const QString &text)
+{
+    applyWrappedText(m_walkbackNote, text);
+}
+
+void SidePanel::setRouteSummaryText(const QString &text)
+{
+    applyWrappedText(m_routeSummaryLabel, text);
 }
 
 void SidePanel::setCollectTarget(const QString &targetId)
@@ -389,6 +434,11 @@ void SidePanel::setWarnings(const QStringList &warnings)
     applyWrappedText(m_warningLabel, lines.join(QLatin1Char('\n')));
 }
 
+QString SidePanel::scenarioContextText() const
+{
+    return m_scenarioLabel ? m_scenarioLabel->text() : QString();
+}
+
 QString SidePanel::scienceGoalText() const
 {
     return m_scienceGoalLabel->text();
@@ -407,6 +457,11 @@ QString SidePanel::primaryTargetWhy() const
 QString SidePanel::routeSummaryText() const
 {
     return m_routeSummaryLabel->text();
+}
+
+QString SidePanel::walkbackText() const
+{
+    return m_walkbackNote->text();
 }
 
 QStringList SidePanel::warningTexts() const
@@ -435,6 +490,11 @@ QString SidePanel::targetRowText(const RankedTarget &ranked)
             .arg(head, travel, onTarget);
     }
 
+    if (ranked.walkbackFailed) {
+        return QStringLiteral("%1 \u2014 %2 \u00b7 %3 \u00b7 WALKBACK FAIL")
+            .arg(head, travel, onTarget);
+    }
+
     const QString rate =
         QStringLiteral("%1/min").arg(ranked.valueRate, 0, 'f', 3);
     return QStringLiteral("%1 \u2014 %2 \u00b7 %3 \u00b7 %4")
@@ -460,7 +520,7 @@ void SidePanel::rebuildTargetRows()
             QStringLiteral("font-size: 13px; color: #f5f0e8;"
                            " border: 1px solid #4a3d33; border-radius: 4px;"
                            " padding: 6px;");
-        if (!ranked.reachable) {
+        if (!ranked.reachable || ranked.walkbackFailed) {
             style += QStringLiteral(" color: #d9a49e;");
         }
         if (ranked.target.id == m_primaryId) {
