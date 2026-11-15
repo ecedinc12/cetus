@@ -1,6 +1,7 @@
 #include "ui/MainWindow.h"
 
 #include "data/RasterLayer.h"
+#include "analysis/Radiation.h"
 #include "data/SiteConfig.h"
 #include "routing/Walkback.h"
 #include "app/SampleCollector.h"
@@ -31,6 +32,32 @@ constexpr const char *kScienceGoal =
 QString pairKey(const QString &a, const QString &b)
 {
     return a < b ? a + QLatin1Char('|') + b : b + QLatin1Char('|') + a;
+}
+// [design choice] User-placed targets get the top science value so a safe one
+// is recommended first, and a default work time at the target.
+constexpr double kUserTargetValue = 1.0;
+constexpr double kUserTargetMinutes = 15.0;
+// [design choice] Cap on user targets: each one costs a path search to every
+// other target.
+constexpr int kMaxUserTargets = 5;
+
+// Radiation line (third data kind). `evaMin` < 0 means no plan: show the rate.
+QString radiationText(double evaMin)
+{
+    QString text = QStringLiteral(
+        "RADIATION (MSL RAD, NASA): %1 +/- %2 mSv/day surface dose rate")
+        .arg(Radiation::kDoseRateMsvPerDay, 0, 'f', 2)
+        .arg(Radiation::kDoseRateSigmaMsvPerDay, 0, 'f', 2);
+    if (evaMin >= 0.0) {
+        text += QStringLiteral(
+            "; est. %1 mSv over the planned %2 min EVA (no suit shielding "
+            "model).")
+            .arg(Radiation::evaDoseMsv(evaMin), 0, 'f', 2)
+            .arg(evaMin, 0, 'f', 0);
+    } else {
+        text += QLatin1Char('.');
+    }
+    return text;
 }
 }  // namespace
 
@@ -115,6 +142,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_advanceButton->setEnabled(false);
     toolBar->addWidget(m_advanceButton);
 
+    // User targets: double-click the map to add one; this removes them.
+    m_clearUserButton = new QToolButton(this);
+    m_clearUserButton->setObjectName(QStringLiteral("clearUserTargetsButton"));
+    m_clearUserButton->setText(tr("Clear my targets"));
+    m_clearUserButton->setToolTip(
+        tr("Double-click the map to add a target (max %1). Removes them."
+           ).arg(kMaxUserTargets));
+    m_clearUserButton->setEnabled(false);
+    toolBar->addWidget(m_clearUserButton);
+
     // Always-visible twin of the panel collect button: at the demo window size
     // the panel's own button can sit below the fold, so the everyday action
     // also lives in the map toolbar.
@@ -181,6 +218,10 @@ MainWindow::MainWindow(QWidget *parent)
             &MainWindow::advanceScenario);
     connect(m_collectToolbarButton, &QToolButton::clicked, this,
             &MainWindow::collectSample);
+    connect(m_mapView, &MapView::targetRequested, this,
+            &MainWindow::addUserTarget);
+    connect(m_clearUserButton, &QToolButton::clicked, this,
+            &MainWindow::clearUserTargets);
     connect(m_mapView, &MapView::cursorMoved, this,
             [this](double eastingM, double northingM) {
                 m_cursorLabel->setText(
@@ -396,7 +437,8 @@ void MainWindow::replan(bool firstLoad)
             "position is not simulated."));
         m_sidePanel->setConsumablesText(QStringLiteral(
             "TIME: no science plan. O2 / POWER / WATER: not modeled (the "
-            "power drop is a scripted scenario event)."));
+            "power drop is a scripted scenario event). ") +
+            radiationText(-1.0));
     } else if (!m_primaryTargetId.isEmpty() && m_route.valid &&
                walkbackById.contains(m_primaryTargetId)) {
         const WalkbackResult check = walkbackById.value(m_primaryTargetId);
@@ -421,7 +463,13 @@ void MainWindow::replan(bool firstLoad)
                 .arg(m_state.timeBudgetMin, 0, 'f', 0)
                 .arg(m_plan.steps.isEmpty() ? check.marginMin
                                             : m_plan.marginMin,
-                     0, 'f', 0));
+                     0, 'f', 0)
+            + QLatin1Char(' ')
+            // EVA length for the dose = time after the last stop + walk back.
+            + radiationText(m_plan.steps.isEmpty()
+                                ? check.elapsedAfterMin + check.returnMin
+                                : m_plan.elapsedAfterMin +
+                                      m_plan.steps.last().returnMin));
     } else {
         m_sidePanel->setWalkbackText(
             QStringLiteral("Walkback: no target passes the check."));
@@ -497,6 +545,79 @@ void MainWindow::replan(bool firstLoad)
 
     m_scenarioLoaded = m_hazard.isValid() && !m_primaryTargetId.isEmpty() &&
                        m_route.valid;
+}
+
+void MainWindow::addUserTarget(double eastingM, double northingM)
+{
+    if (!m_missionReady)
+        return;
+    int userCount = 0;
+    for (const ScienceTarget &t : m_scenario.targets) {
+        if (t.id.startsWith(QLatin1Char('U')))
+            ++userCount;
+    }
+    if (userCount >= kMaxUserTargets) {
+        statusBar()->showMessage(
+            tr("Target limit reached (%1). Use \"Clear my targets\".")
+                .arg(kMaxUserTargets), 5000);
+        return;
+    }
+
+    ScienceTarget target;
+    target.id = QStringLiteral("U%1").arg(++m_userTargetSerial);
+    target.name = QStringLiteral("User waypoint %1").arg(m_userTargetSerial);
+    target.eastingM = eastingM;
+    target.northingM = northingM;
+    target.scienceValue = kUserTargetValue;
+    target.minutesOnTarget = kUserTargetMinutes;
+    target.phenomenon = QStringLiteral("User-selected point");
+    target.why = QStringLiteral(
+        "Chosen by the crew on the map. No science assessment is claimed; "
+        "value and work time are design choices.");
+    target.source = QStringLiteral("User input (map double-click)");
+
+    // Same planner as the scenario targets: an unreachable point yields an
+    // invalid route and is flagged, never treated as safe.
+    const Route planned = TraversePlanner::planToTarget(
+        m_hazard, m_scenario.crewStart, target);
+    m_routeById.insert(target.id, planned);
+    m_travelById.insert(target.id, planned.valid ? planned.timeMin : -1.0);
+    for (const ScienceTarget &other : m_scenario.targets) {
+        const Route leg =
+            TraversePlanner::planToTarget(m_hazard, other.position(), target);
+        m_legByPair.insert(pairKey(other.id, target.id),
+                           leg.valid ? leg.timeMin : -1.0);
+        m_legRouteByPair.insert(pairKey(other.id, target.id), leg);
+    }
+    m_scenario.targets.append(target);
+
+    replan(false);
+    if (m_route.valid)
+        m_mapView->fitToRoute();
+    m_clearUserButton->setEnabled(true);
+    updateStatus();
+}
+
+void MainWindow::clearUserTargets()
+{
+    if (!m_missionReady)
+        return;
+    auto isUser = [](const QString &id) {
+        return id.startsWith(QLatin1Char('U'));
+    };
+    for (int i = m_scenario.targets.size() - 1; i >= 0; --i) {
+        if (isUser(m_scenario.targets.at(i).id)) {
+            m_routeById.remove(m_scenario.targets.at(i).id);
+            m_travelById.remove(m_scenario.targets.at(i).id);
+            m_scenario.targets.removeAt(i);
+        }
+    }
+    // Stale pair entries stay in m_leg*ByPair; nothing reads them once the
+    // targets are gone, and a re-added Un overwrites them.
+    m_userTargetSerial = 0;
+    m_clearUserButton->setEnabled(false);
+    replan(false);
+    updateStatus();
 }
 
 void MainWindow::advanceScenario()
@@ -750,6 +871,8 @@ void MainWindow::updateStatus()
             .arg(m_state.tau, 0, 'f', 1)
             .arg(layerCount)
             .arg(visibleCount);
+    text += QStringLiteral(" · RAD %1 mSv/d")
+                .arg(Radiation::kDoseRateMsvPerDay, 0, 'f', 2);
     if (visibleCount == 0)
         text += QStringLiteral(" · NO LAYERS VISIBLE");
     if (m_missionReady) {

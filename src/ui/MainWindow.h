@@ -57,6 +57,10 @@ public:
     // (S4 wraps back to S0) and recomputes ranking, walkback, route and panel.
     // Does nothing when the mission data did not load.
     void advanceScenario();
+    // User target: plan routes to/from the point and replan (double-click).
+    void addUserTarget(double eastingM, double northingM);
+    // Remove all user-placed targets and replan.
+    void clearUserTargets();
     int scenarioStepIndex() const;
     const ScenarioStep &scenarioStep() const;
     const MissionState &missionState() const;
@@ -128,6 +132,8 @@ private:
     MissionPlan m_plan;
     bool m_missionReady = false;
     QToolButton *m_advanceButton = nullptr;
+    QToolButton *m_clearUserButton = nullptr;
+    int m_userTargetSerial = 0;
 
     std::unique_ptr<SampleCollector> m_collector;
     QString m_sampleError;

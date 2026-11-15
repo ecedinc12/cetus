@@ -87,6 +87,8 @@ public slots:
 
 signals:
     void cursorMoved(double eastingM, double northingM);
+    // Double-click: the user asks for a target at this projected point.
+    void targetRequested(double eastingM, double northingM);
     void viewChanged();
     void visibleLayersChanged();
 
@@ -95,6 +97,7 @@ protected:
     void showEvent(QShowEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
 
