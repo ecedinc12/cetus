@@ -731,6 +731,12 @@ void MapView::mousePressEvent(QMouseEvent *event)
     QWidget::mousePressEvent(event);
 }
 
+void MapView::clearCrewStart()
+{
+    m_hasCrewStart = false;
+    update();
+}
+
 void MapView::mouseDoubleClickEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {

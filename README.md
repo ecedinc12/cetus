@@ -24,7 +24,7 @@ Development notes are in [docs/PROGRESS.md](docs/PROGRESS.md).
 | M5 | Scenario S0 to S4 with "Advance scenario" control | done |
 | M6 | Sample logging: field note, geotag, DEM orientation | done |
 | M7 | README, citations, demo script, rehearsal checklist | docs done; rehearsal pending |
-| M8 | Radiation (MSL RAD) as third data kind; user targets by map double-click | code written, not yet built or tested |
+| M8 | Radiation (MSL RAD) as third data kind; user targets by map double-click; free route mode | code written, not yet built or tested |
 
 ## Honest limits
 
@@ -94,6 +94,11 @@ Environment variables:
   slope and a field note to the JSONL log.
 - **Add a target:** double-click the map. The point is routed, walkback-checked and
   ranked as `U1`..`U5`; **Clear my targets** removes them.
+- **Free route:** toolbar toggle. Ignores the scenario targets and start. The first
+  double-click sets the START, later ones add targets; routes, walkback and radiation
+  work the same, with the start as haven. **Clear my targets** resets start and
+  targets. Switching it off restores scenario S0-S4 unchanged (Advance is disabled
+  while it is on).
 - **Radiation:** status bar shows `RAD <mSv/d>`; the consumables text adds the
   estimated dose for the planned EVA.
 - **Hazard / Targets / Fit:** map toolbar. Amber is slope 10 to 20 deg, red is no-go.

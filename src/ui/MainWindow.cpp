@@ -142,6 +142,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_advanceButton->setEnabled(false);
     toolBar->addWidget(m_advanceButton);
 
+    // Free route: pick START and targets on the map, independent of the
+    // scenario (which stays available when the mode is switched off).
+    m_freeButton = new QToolButton(this);
+    m_freeButton->setObjectName(QStringLiteral("freeRouteButton"));
+    m_freeButton->setText(tr("Free route"));
+    m_freeButton->setCheckable(true);
+    m_freeButton->setEnabled(false);
+    m_freeButton->setToolTip(
+        tr("Plan from your own points: double-click the map to set the START, "
+           "then double-click to add targets. Scenario S0-S4 is kept."));
+    toolBar->addWidget(m_freeButton);
+
     // User targets: double-click the map to add one; this removes them.
     m_clearUserButton = new QToolButton(this);
     m_clearUserButton->setObjectName(QStringLiteral("clearUserTargetsButton"));
@@ -219,7 +231,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_collectToolbarButton, &QToolButton::clicked, this,
             &MainWindow::collectSample);
     connect(m_mapView, &MapView::targetRequested, this,
-            &MainWindow::addUserTarget);
+            &MainWindow::handleMapDoubleClick);
+    connect(m_freeButton, &QToolButton::toggled, this,
+            &MainWindow::setFreeMode);
     connect(m_clearUserButton, &QToolButton::clicked, this,
             &MainWindow::clearUserTargets);
     connect(m_mapView, &MapView::cursorMoved, this,
@@ -283,6 +297,16 @@ void MainWindow::loadMission()
 
     // Terrain does not change between scenario steps, so the routes are
     // planned once here.
+    rebuildPlanning();
+    m_missionReady = true;
+    if (m_freeButton)
+        m_freeButton->setEnabled(true);
+
+    replan(true);
+}
+
+void MainWindow::rebuildPlanning()
+{
     m_routeById.clear();
     m_travelById.clear();
     m_routeById.reserve(m_scenario.targets.size());
@@ -311,9 +335,63 @@ void MainWindow::loadMission()
             m_legRouteByPair.insert(pairKey(from.id, to.id), leg);
         }
     }
-    m_missionReady = true;
+}
 
-    replan(true);
+bool MainWindow::freeMode() const
+{
+    return m_freeMode;
+}
+
+void MainWindow::handleMapDoubleClick(double eastingM, double northingM)
+{
+    if (!m_missionReady)
+        return;
+    if (m_freeMode && !m_freeStartSet) {
+        m_scenario.crewStart = QPointF(eastingM, northingM);
+        m_freeStartSet = true;
+        m_mapView->setCrewStart(m_scenario.crewStart);
+        replan(false);
+        updateStatus();
+        return;
+    }
+    addUserTarget(eastingM, northingM);
+}
+
+void MainWindow::setFreeMode(bool on)
+{
+    if (!m_missionReady || on == m_freeMode)
+        return;
+    m_freeMode = on;
+    if (on) {
+        m_savedScenario = m_scenario;
+        m_scenario.targets.clear();
+        m_freeStartSet = false;
+        m_userTargetSerial = 0;
+        // Free mode runs on the nominal state; the scripted events are off.
+        m_stepIndex = 0;
+        const ScenarioStep &s0 = ScenarioSteps::at(0);
+        m_state.tau = s0.tau;
+        m_state.timeBudgetMin = s0.timeBudgetMin;
+        m_state.commsClosed = s0.commsClosed;
+        m_state.commsOfflineMin = s0.commsOfflineMin;
+        m_routeById.clear();
+        m_travelById.clear();
+        m_legByPair.clear();
+        m_legRouteByPair.clear();
+        m_mapView->clearCrewStart();
+        m_clearUserButton->setEnabled(true);
+    } else {
+        m_scenario = m_savedScenario;
+        m_userTargetSerial = 0;
+        rebuildPlanning();
+        m_mapView->setCrewStart(m_scenario.crewStart);
+        m_clearUserButton->setEnabled(false);
+    }
+    replan(false);
+    if (m_route.valid)
+        m_mapView->fitToRoute();
+    updateAdvanceButton();
+    updateStatus();
 }
 
 void MainWindow::replan(bool firstLoad)
@@ -510,8 +588,25 @@ void MainWindow::replan(bool firstLoad)
             "Power low: science disabled \u00b7 return to the EVA start "
             "(haven).");
     }
-    m_sidePanel->setScenarioContext(step.id, step.title, contextDetail,
-                                    m_stepIndex, ScenarioSteps::count());
+    if (m_freeMode) {
+        contextDetail = QStringLiteral(
+            "Free route from your own points. Scenario S0-S4 is paused; "
+            "switch Free route off to return to it.");
+        m_sidePanel->setScenarioContext(QStringLiteral("FREE"),
+                                        QStringLiteral("FREE ROUTE"),
+                                        contextDetail, 0,
+                                        ScenarioSteps::count());
+    } else {
+        m_sidePanel->setScenarioContext(step.id, step.title, contextDetail,
+                                        m_stepIndex, ScenarioSteps::count());
+    }
+    if (m_freeMode && !m_freeStartSet) {
+        m_sidePanel->setRouteSummaryText(QStringLiteral(
+            "FREE ROUTE: double-click the map to set the START point"));
+    } else if (m_freeMode && m_scenario.targets.isEmpty()) {
+        m_sidePanel->setRouteSummaryText(QStringLiteral(
+            "FREE ROUTE: double-click the map to add a target"));
+    }
 
     QStringList warnings;
     if (!m_route.warning.isEmpty())
@@ -615,7 +710,15 @@ void MainWindow::clearUserTargets()
     // Stale pair entries stay in m_leg*ByPair; nothing reads them once the
     // targets are gone, and a re-added Un overwrites them.
     m_userTargetSerial = 0;
-    m_clearUserButton->setEnabled(false);
+    if (m_freeMode) {
+        // Free route restarts from scratch: start and targets are both reset.
+        m_freeStartSet = false;
+        m_routeById.clear();
+        m_travelById.clear();
+        m_mapView->clearCrewStart();
+    } else {
+        m_clearUserButton->setEnabled(false);
+    }
     replan(false);
     updateStatus();
 }
@@ -643,7 +746,7 @@ void MainWindow::updateAdvanceButton()
 {
     if (!m_advanceButton)
         return;
-    m_advanceButton->setEnabled(m_missionReady);
+    m_advanceButton->setEnabled(m_missionReady && !m_freeMode);
     const bool atLast = m_stepIndex >= ScenarioSteps::count() - 1;
     m_advanceButton->setText(
         atLast ? tr("Restart scenario")
@@ -875,9 +978,13 @@ void MainWindow::updateStatus()
                 .arg(Radiation::kDoseRateMsvPerDay, 0, 'f', 2);
     if (visibleCount == 0)
         text += QStringLiteral(" · NO LAYERS VISIBLE");
-    if (m_missionReady) {
+    if (m_missionReady && !m_freeMode) {
         text += QStringLiteral(" · SCENARIO %1")
                     .arg(ScenarioSteps::at(m_stepIndex).id);
+    }
+    if (m_freeMode) {
+        text += !m_freeStartSet ? QStringLiteral(" · FREE ROUTE: SET START")
+                                : QStringLiteral(" · FREE ROUTE");
     }
     if (m_state.commsClosed) {
         text += QStringLiteral(" · COMMS OFFLINE +%1 MIN")

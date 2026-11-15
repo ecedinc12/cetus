@@ -61,6 +61,11 @@ public:
     void addUserTarget(double eastingM, double northingM);
     // Remove all user-placed targets and replan.
     void clearUserTargets();
+    // Free-route mode: ignore the scenario targets and start; the crew picks
+    // the START (first double-click) and the targets on the map. Leaving the
+    // mode restores the scenario untouched.
+    void setFreeMode(bool on);
+    bool freeMode() const;
     int scenarioStepIndex() const;
     const ScenarioStep &scenarioStep() const;
     const MissionState &missionState() const;
@@ -89,6 +94,10 @@ private:
     // hazard overlay, which never change between steps.
     void replan(bool firstLoad);
     void updateAdvanceButton();
+    // Plan routes start->target and target->target for m_scenario.targets.
+    void rebuildPlanning();
+    // Double-click on the map: sets the free-route start, else adds a target.
+    void handleMapDoubleClick(double eastingM, double northingM);
     // Refresh the status-bar mission/layer summary. Keeps the loud load
     // failure message when the rasters could not be loaded.
     void updateStatus();
@@ -134,6 +143,10 @@ private:
     QToolButton *m_advanceButton = nullptr;
     QToolButton *m_clearUserButton = nullptr;
     int m_userTargetSerial = 0;
+    QToolButton *m_freeButton = nullptr;
+    bool m_freeMode = false;
+    bool m_freeStartSet = false;
+    MissionScenario m_savedScenario;  // scenario stashed while in free mode
 
     std::unique_ptr<SampleCollector> m_collector;
     QString m_sampleError;

@@ -54,6 +54,7 @@ public:
     void clearPlanRoutes();
     void setTargets(const QVector<RankedTarget> &targets, const QString &primaryId);
     void setCrewStart(const QPointF &eastNorth);
+    void clearCrewStart();
     void setHazardOverlay(const QImage &image, const QRectF &extentMeters);
     void clearHazardOverlay();
     void fitToRoute();
