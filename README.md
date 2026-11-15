@@ -12,6 +12,12 @@ Offline field tool for a **Mars astronaut** on a surface EVA. Native Qt 6 / C++1
 Scope is locked in [AGENTS.md](AGENTS.md). Milestones are in [PLAN.md](PLAN.md).
 Development notes are in [docs/PROGRESS.md](docs/PROGRESS.md).
 
+## UI
+
+![UI 1](images/ui1.jpeg)
+![UI 2](images/ui2.jpeg)
+![UI 3](images/ui3.jpeg)
+
 ## Status
 
 | Milestone | Feature | Status |
@@ -23,8 +29,8 @@ Development notes are in [docs/PROGRESS.md](docs/PROGRESS.md).
 | M4 | Walkback rule, time budget, greedy multi-target plan | done |
 | M5 | Scenario S0 to S4 with "Advance scenario" control | done |
 | M6 | Sample logging: field note, geotag, DEM orientation | done |
-| M7 | README, citations, demo script, rehearsal checklist | docs done; rehearsal pending |
-| M8 | Radiation (MSL RAD) as third data kind; user targets by map double-click; free route mode | code written, not yet built or tested |
+| M7 | README, citations, demo script | docs written; rehearsal pending (no rehearsal checklist file in the repo yet) |
+| M8 | Radiation (MSL RAD) as third data kind; user targets by map double-click; free route mode | done; built and run in the app |
 
 ## Honest limits
 
@@ -33,7 +39,7 @@ Development notes are in [docs/PROGRESS.md](docs/PROGRESS.md).
   and hillshade are derived from the DTM. Radiation is a scalar: it is shown in the
   status bar and the consumables text with a dose estimate for the planned EVA
   (rate x EVA time; no suit shielding or solar-event model, no dose limit claimed).
-- **User targets:** double-click the map to add a target (max 5). It is routed and
+- **User targets:** double-click the map to add a target (max 6). It is routed and
   walkback-checked like the scenario targets; an unreachable point is flagged.
   Its science value (1.0) and work time (15 min) are design choices.
 - **Consumables:** O2, power and water are **not modeled** (no endurance data). The
@@ -44,7 +50,15 @@ Development notes are in [docs/PROGRESS.md](docs/PROGRESS.md).
   start point (no real shelter coordinate exists in the data).
 - **Scenario:** a tau rise cuts the time budget; it does not change the primary
   target (T1 stays best). S4 power-low is a scripted event, not a model.
-- The map draws only the first leg of the plan; the panel lists the whole chain.
+- **Crew position is not simulated.** The plan always starts at the EVA start
+  point with 0 min elapsed; nothing moves along the route.
+- **Sample log persists across runs.** It is append-only, so the status bar can name
+  an earlier note (for example `SAMPLE-3-47 LOGGED`) while the side panel still says
+  "No samples logged." until a note is taken in the current session. For a clean
+  demo start the app with `CETUS_SAMPLE_LOG=/tmp/demo.jsonl ./build/cetus`.
+- **Two margins in the panel:** the ROUTE text reports the walkback margin for the
+  next target alone; the consumables text reports the margin left after the whole
+  plan. They differ when the plan has more than one stop.
 - A sample record is a **field note**. No physical sample or composition
   measurement is claimed.
 
@@ -65,7 +79,9 @@ Web Mercator. Missing raster values mean **unknown**, never safe.
 
 ## Build and run
 
-Needs CMake 3.20+, a C++17 compiler, Qt 6 (Core, Gui, Widgets), GDAL, PROJ.
+Needs CMake 3.20+, a C++17 compiler, Qt 6 (Core, Gui, Widgets; Qt Test for the
+tests) and GDAL (which brings PROJ). Preparing the rasters also needs the GDAL
+command-line tools (`gdal_translate`, `gdaldem`, `gdaltransform`).
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -84,7 +100,7 @@ Environment variables:
 | Variable | Effect |
 |---|---|
 | `CETUS_ASSET_DIR` | override the assets folder |
-| `CETUS_SAMPLE_LOG` | sample log path (default `<AppData>/samples.jsonl`) |
+| `CETUS_SAMPLE_LOG` | sample log path (default `<AppData>/samples.jsonl`, normally `~/.local/share/cetus/samples.jsonl` on Linux) |
 
 ## Using the app
 
@@ -93,7 +109,7 @@ Environment variables:
 - **COLLECT SAMPLE:** appends `SAMPLE-<sol>-<n>` with coordinates, DEM up-vector,
   slope and a field note to the JSONL log.
 - **Add a target:** double-click the map. The point is routed, walkback-checked and
-  ranked as `U1`..`U5`; **Clear my targets** removes them.
+  ranked as `U1`..`U6`; **Clear my targets** removes them.
 - **Free route:** toolbar toggle. Ignores the scenario targets and start. The first
   double-click sets the START, later ones add targets; routes, walkback and radiation
   work the same, with the start as haven. **Clear my targets** resets start and
@@ -115,10 +131,20 @@ Environment variables:
   - Warnings (side panel and status bar) cover: point outside the map, START on
     no-go ground, duplicate or too many points, no safe route, limit exceeded,
     tight margin, limit above 6 h, one-way trips.
+- **Map:** the whole plan is drawn. The first leg to the next target is solid cyan,
+  later legs are dashed cyan, and for a round trip the way back to the START is
+  dashed amber. The next target is the large orange marker; other reachable targets
+  are small amber, and a red ring marks a target with no route or a failed walkback.
 - **Radiation:** status bar shows `RAD <mSv/d>`; the consumables text adds the
   estimated dose for the planned EVA.
-- **Hazard / Targets / Fit:** map toolbar. Amber is slope 10 to 20 deg, red is no-go.
+- **Hazard / Targets / Fit:** map toolbar. **Hazard** and **Targets** are toggle
+  buttons that show or hide the hazard grid and the target markers; hiding them does
+  not change the plan, the route or the START. Amber is slope 10 to 20 deg, red is
+  no-go.
 - **Layers dock:** toggle each layer; each row shows source, resolution and units.
+  The **Map key** at its right explains the hazard colours, the route and plan line
+  styles, and a note that the HiRISE strip is rotated in the north-up Mars grid (the
+  black wedges are missing data, not terrain).
 
 ## Layout
 
@@ -130,11 +156,15 @@ src/gis       planetary CRS
 src/routing   traverse planner, walkback, mission plan
 src/ui        main window, map, side panel, legend
 assets/       prepared layers (local), scenario json
-docs/         data sources, demo script, rehearsal, progress log
+docs/         data sources, demo script, progress log
 tests/        ctest targets
 ```
 
 ## Demo
 
-Run [docs/demo-script.md](docs/demo-script.md) (2 to 3 min) after the checklist in
-[docs/demo-rehearsal.md](docs/demo-rehearsal.md).
+Run [docs/demo-script.md](docs/demo-script.md) (2 to 3 min). Start the app with a
+clean sample log so the status bar and the panel agree:
+
+```bash
+CETUS_SAMPLE_LOG=/tmp/demo.jsonl ./build/cetus
+```
