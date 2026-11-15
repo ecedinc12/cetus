@@ -52,6 +52,9 @@ public:
     // target-to-target legs. Drawn underneath the primary route.
     void setPlanRoutes(const QVector<Route> &routes);
     void clearPlanRoutes();
+    // Optimal way back to the haven from the last stop (drawn dashed amber).
+    void setReturnRoute(const Route &route);
+    void clearReturnRoute();
     void setTargets(const QVector<RankedTarget> &targets, const QString &primaryId);
     void setCrewStart(const QPointF &eastNorth);
     void clearCrewStart();
@@ -125,6 +128,7 @@ private:
 
     Route m_route;
     QVector<Route> m_planRoutes;
+    Route m_returnRoute;
     QVector<RankedTarget> m_targets;
     QString m_primaryTargetId;
     QPointF m_crewStart;

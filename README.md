@@ -99,6 +99,22 @@ Environment variables:
   work the same, with the start as haven. **Clear my targets** resets start and
   targets. Switching it off restores scenario S0-S4 unchanged (Advance is disabled
   while it is on).
+- **Route dock (left):** trip type, EVA limit and the point list.
+  - *Trip:* **Round trip** counts the way back in the EVA limit; **One way** plans no
+    return leg (a warning says recovery must be arranged). The way back is the
+    **best path** from the last stop to the START (dashed amber on the map), not a
+    retrace of the outward legs. Walking back is still x1.2 slower plus 15 min reserve.
+  - *EVA limit:* 6 h by default, a planning assumption, editable (0.5 to 12 h). It
+    caps the whole trip including the way back. Storm steps in the scenario cut it
+    further.
+  - *Points:* select a row and press **Delete** (or the key). Delete the START and
+    the next point becomes the START; with no points left, set a new one. **Up/Down**
+    reorder targets. In Free route the targets are visited in the listed order and the
+    route stops at the first point that breaks the limit. In the scenario only your
+    own `U` points can be deleted; the scenario points stay.
+  - Warnings (side panel and status bar) cover: point outside the map, START on
+    no-go ground, duplicate or too many points, no safe route, limit exceeded,
+    tight margin, limit above 6 h, one-way trips.
 - **Radiation:** status bar shows `RAD <mSv/d>`; the consumables text adds the
   estimated dose for the planned EVA.
 - **Hazard / Targets / Fit:** map toolbar. Amber is slope 10 to 20 deg, red is no-go.

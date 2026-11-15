@@ -51,5 +51,7 @@ struct MissionPlan
         const QVector<ScienceTarget> &targets,
         const QHash<QString, double> &fromStartMin,
         const std::function<double(const QString &, const QString &)> &legMin,
-        double elapsedMin, double budgetMin);
+        double elapsedMin, double budgetMin,
+        // One-way trip: no return leg is required (return path = 0).
+        bool oneWay = false);
 };
