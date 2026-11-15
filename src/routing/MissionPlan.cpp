@@ -24,7 +24,7 @@ MissionPlan MissionPlan::build(
     const QVector<ScienceTarget> &targets,
     const QHash<QString, double> &fromStartMin,
     const std::function<double(const QString &, const QString &)> &legMin,
-    double elapsedMin, double budgetMin)
+    double elapsedMin, double budgetMin, bool oneWay)
 {
     MissionPlan plan;
     plan.elapsedAfterMin = elapsedMin;
@@ -60,7 +60,7 @@ MissionPlan MissionPlan::build(
             // Return path = candidate -> start = start -> candidate time.
             const WalkbackResult check = Walkback::evaluate(
                 elapsed, leg, candidate.minutesOnTarget,
-                fromStartMin.value(candidate.id), budgetMin);
+                oneWay ? 0.0 : fromStartMin.value(candidate.id), budgetMin);
             if (!check.feasible)
                 continue;
 

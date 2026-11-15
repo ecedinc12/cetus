@@ -339,3 +339,10 @@ M3 adds a hazard grid, a route overlay and a field panel on top of these
 layers. It does **not** add a new measured NASA data kind; the brief's
 "three kinds" requirement still needs thermal, spectral or another measured
 layer before the final demo. That is tracked as M4 pre-work.
+
+## Radiation (MSL RAD)
+
+- Value: surface dose equivalent rate 0.64 +/- 0.12 mSv/day (absorbed dose 0.21 +/- 0.04 mGy/day).
+- Source: Hassler et al., Science 343, 1244797 (2014), doi:10.1126/science.1244797. GCR dominated, Aug 2012 - Jun 2013, Gale Crater, measured inside the rover.
+- Used in `src/analysis/Radiation.h` as a scalar. EVA dose = rate x EVA minutes / 1440. Caveats: inside-rover shielding, not suit shielding; no solar particle events; no dose limit claimed.
+- Retrieved by web search summary; verify against the paper before the demo.

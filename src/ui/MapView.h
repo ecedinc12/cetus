@@ -52,8 +52,12 @@ public:
     // target-to-target legs. Drawn underneath the primary route.
     void setPlanRoutes(const QVector<Route> &routes);
     void clearPlanRoutes();
+    // Optimal way back to the haven from the last stop (drawn dashed amber).
+    void setReturnRoute(const Route &route);
+    void clearReturnRoute();
     void setTargets(const QVector<RankedTarget> &targets, const QString &primaryId);
     void setCrewStart(const QPointF &eastNorth);
+    void clearCrewStart();
     void setHazardOverlay(const QImage &image, const QRectF &extentMeters);
     void clearHazardOverlay();
     void fitToRoute();
@@ -87,6 +91,8 @@ public slots:
 
 signals:
     void cursorMoved(double eastingM, double northingM);
+    // Double-click: the user asks for a target at this projected point.
+    void targetRequested(double eastingM, double northingM);
     void viewChanged();
     void visibleLayersChanged();
 
@@ -95,6 +101,7 @@ protected:
     void showEvent(QShowEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
 
@@ -121,6 +128,7 @@ private:
 
     Route m_route;
     QVector<Route> m_planRoutes;
+    Route m_returnRoute;
     QVector<RankedTarget> m_targets;
     QString m_primaryTargetId;
     QPointF m_crewStart;
