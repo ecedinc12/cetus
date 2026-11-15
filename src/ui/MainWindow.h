@@ -17,6 +17,9 @@
 #include <memory>
 
 class LayerLegend;
+class QComboBox;
+class QDoubleSpinBox;
+class QListWidget;
 class MapView;
 class QShowEvent;
 class QToolButton;
@@ -57,6 +60,27 @@ public:
     // (S4 wraps back to S0) and recomputes ranking, walkback, route and panel.
     // Does nothing when the mission data did not load.
     void advanceScenario();
+    // User target: plan routes to/from the point and replan (double-click).
+    void addUserTarget(double eastingM, double northingM);
+    // Remove all user-placed targets and replan.
+    void clearUserTargets();
+    // Free-route mode: ignore the scenario targets and start; the crew picks
+    // the START (first double-click) and the targets on the map. Leaving the
+    // mode restores the scenario untouched.
+    void setFreeMode(bool on);
+    bool freeMode() const;
+
+    // Trip type: round trip (return to the START by the best path, counted in
+    // the EVA limit) or one way (no return leg).
+    void setOneWay(bool oneWay);
+    bool oneWay() const;
+    // EVA limit, hours. 6 h is a planning assumption, editable by the crew.
+    void setEvaLimitHours(double hours);
+    double evaLimitMin() const;
+    // Waypoint list (row 0 = START, then the targets in route order).
+    void deleteSelectedPoint();
+    void moveSelectedPoint(int delta);
+    QListWidget *pointList() const;
     int scenarioStepIndex() const;
     const ScenarioStep &scenarioStep() const;
     const MissionState &missionState() const;
@@ -85,6 +109,22 @@ private:
     // hazard overlay, which never change between steps.
     void replan(bool firstLoad);
     void updateAdvanceButton();
+    void buildRouteDock();
+    void refreshPointList();
+    // After the point set changed: replan routes, map, panel, status.
+    void refreshAfterEdit();
+    // Show a visible warning (status bar + warnings list) until the next
+    // user action.
+    void notify(const QString &message);
+    // Free-route plan: targets visited in the order entered; stops at the
+    // first step that breaks the EVA limit (reasons go to `notes`).
+    MissionPlan buildOrderedPlan(QStringList *notes) const;
+    // Budget for a scenario step: the crew's limit, reduced by storm steps.
+    double effectiveBudget(const ScenarioStep &step) const;
+    // Plan routes start->target and target->target for m_scenario.targets.
+    void rebuildPlanning();
+    // Double-click on the map: sets the free-route start, else adds a target.
+    void handleMapDoubleClick(double eastingM, double northingM);
     // Refresh the status-bar mission/layer summary. Keeps the loud load
     // failure message when the rasters could not be loaded.
     void updateStatus();
@@ -128,6 +168,19 @@ private:
     MissionPlan m_plan;
     bool m_missionReady = false;
     QToolButton *m_advanceButton = nullptr;
+    QToolButton *m_clearUserButton = nullptr;
+    int m_userTargetSerial = 0;
+    QToolButton *m_freeButton = nullptr;
+    bool m_freeMode = false;
+    bool m_oneWay = false;
+    double m_evaLimitMin = Walkback::kTimeBudgetMin;
+    QString m_notice;
+    QStringList m_lastWarnings;
+    QListWidget *m_pointList = nullptr;
+    QComboBox *m_tripCombo = nullptr;
+    QDoubleSpinBox *m_limitSpin = nullptr;
+    bool m_freeStartSet = false;
+    MissionScenario m_savedScenario;  // scenario stashed while in free mode
 
     std::unique_ptr<SampleCollector> m_collector;
     QString m_sampleError;

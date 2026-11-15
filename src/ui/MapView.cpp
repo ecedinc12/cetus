@@ -553,6 +553,21 @@ void MapView::drawOverlays(QPainter &painter) const
         painter.drawPolyline(polyline);
     }
 
+    // Return leg to the haven: dashed amber over a dark casing.
+    if (m_returnRoute.valid && m_returnRoute.points.size() >= 2) {
+        QPolygonF polyline;
+        polyline.reserve(m_returnRoute.points.size());
+        for (const QPointF &point : m_returnRoute.points)
+            polyline.append(metersToPixel(point));
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(kRouteCasing, 5, Qt::SolidLine, Qt::RoundCap,
+                            Qt::RoundJoin));
+        painter.drawPolyline(polyline);
+        painter.setPen(QPen(QColor(255, 160, 60), 3, Qt::DashDotLine,
+                            Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPolyline(polyline);
+    }
+
     // Primary route: dark casing under a bright cyan core.
     if (m_route.valid && m_route.points.size() >= 2) {
         QPolygonF polyline;
@@ -729,6 +744,35 @@ void MapView::mousePressEvent(QMouseEvent *event)
         return;
     }
     QWidget::mousePressEvent(event);
+}
+
+void MapView::setReturnRoute(const Route &route)
+{
+    m_returnRoute = route;
+    update();
+}
+
+void MapView::clearReturnRoute()
+{
+    m_returnRoute = Route();
+    update();
+}
+
+void MapView::clearCrewStart()
+{
+    m_hasCrewStart = false;
+    update();
+}
+
+void MapView::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        const QPointF m = pixelToMeters(event->position());
+        emit targetRequested(m.x(), m.y());
+        event->accept();
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void MapView::mouseMoveEvent(QMouseEvent *event)

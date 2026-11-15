@@ -85,3 +85,7 @@ add_test(NAME samplecollector COMMAND test_samplecollector)
 set_tests_properties(samplecollector PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;CETUS_ASSET_DIR=${CMAKE_SOURCE_DIR}/assets"
 )
+
+add_executable(test_radiation test_radiation.cpp)
+target_link_libraries(test_radiation PRIVATE cetus_core Qt6::Test)
+add_test(NAME radiation COMMAND test_radiation)
